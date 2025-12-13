@@ -1,0 +1,27 @@
+# -------- Configuration file for SimCLR training ----------
+
+model: "resnet50" # Any of: resnet50, vit_b_16, efficientnet_b5
+model_saved_path: "model_checkpoints/" # path to save model checkpoints
+
+# Training
+seed: 42 
+image_size: 224
+
+## Pre-training options
+pretrain_batch_size: 1024
+pretrain_epochs: 100
+pretrain_weight_decay: 1.0e-6 # "optimized using LARS [...] and weight decay of 10−6"
+pretrain_temperature: 0.5 # see appendix B.7.: Optimal temperature under different batch sizes
+
+
+## Linear Evaluation options
+lin_eval_batch_size: 4096 # We use the Nesterov momentum optimizer with a batch size of 4096
+lin_eval_momentum: 0.9 # [..] using the Nesterov momentum optimizer with a momentum of 0.9
+lin_eval_learning_rate: 1.6 # [..] following LearningRate = 0.1 ×BatchSize/256
+lin_eval_epochs: 90 # Linear evaluation training for 90 epochs
+lin_eval_subset_ratio: 0.01 # ratio of data used for linear evaluation (for example 0.01 means 1% of the training data)
+
+
+## Logging and saving options
+lin_eval_every: 10 # evaluate model performance every N epochs during pre-training
+save_model_every: 50 # save model checkpoint every N epochs during pre-training (must be multiple of lin_eval_every)
