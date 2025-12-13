@@ -5,7 +5,7 @@ from torch.optim.optimizer import Optimizer
 class LARS(Optimizer):
     """
     Layer-wise Adaptive Rate Scaling (LARS) optimizer.
-    
+
     Args:
         params (iterable): Iterable of parameters to optimize or dicts defining parameter groups.
         lr (float): Base learning rate.
