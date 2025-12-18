@@ -10,13 +10,10 @@ This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
 ### 1. Install uv
 
 ```bash
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Or with Homebrew
+# Homebrew
 brew install uv
 
-# Or with pip (in any Python environment)
+# pip (in any Python environment)
 pip install uv
 ```
 
