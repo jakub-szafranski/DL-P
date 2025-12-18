@@ -51,7 +51,6 @@ Edit `config.yaml` to adjust training parameters.
 ├── pyproject.toml       # Project metadata and dependencies
 ├── uv.lock              # Locked dependency versions (auto-generated)
 ├── run.py               # Main training script
-├── demo.py              # Demo/experimentation script
 ├── sim_clr/             # SimCLR implementation
 │   ├── encoder.py       # Encoder architectures
 │   ├── lars.py          # LARS optimizer
