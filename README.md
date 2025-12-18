@@ -62,5 +62,5 @@ Edit `config.yaml` to adjust training parameters.
 └── utils/               # Utilities
     ├── config.py        # Config loader
     ├── data.py          # Dataset utilities
-    └── linear_evaluation.py  # Linear evaluation protocol
+    └── fine_tuning.py   # Fine-tuning evaluation
 ```
