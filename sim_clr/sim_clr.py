@@ -1,13 +1,22 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 
 class SimCLR(nn.Module):
-    def __init__(self, base_encoder, projection_dim=128):
+    """SimCLR model with encoder and projection head."""
+
+    def __init__(self, encoder: nn.Module, num_features: int, projection_dim: int = 128):
+        """
+        Initialize SimCLR model.
+
+        Args:
+            encoder (nn.Module): Backbone encoder (already without classification head).
+            num_features (int): Output dimension of the encoder.
+            projection_dim (int): Output dimension of the projection head.
+        """
         super().__init__()
-        self.encoder = base_encoder
-        num_features = self.encoder.fc.in_features
-        self.encoder.fc = nn.Identity()
+        self.encoder = encoder
         self.projection_head = nn.Sequential(
             nn.Linear(num_features, num_features, bias=False),
             nn.ReLU(),
@@ -20,27 +29,32 @@ class SimCLR(nn.Module):
 
 
 class NTXentLoss(nn.Module):
-    def __init__(self, temperature=0.5, device="cuda:0"):
+    def __init__(self, temperature=0.5):
         super().__init__()
         self.temperature = temperature
-        self.similarity_f = nn.CosineSimilarity(dim=2)
         self.criterion = nn.CrossEntropyLoss()
 
-        self.device = device
-
     def forward(self, z_i, z_j):
+        device = z_i.device
         batch_size = z_i.shape[0]
+        n_samples = 2 * batch_size
+        
         z = torch.cat([z_i, z_j], dim=0)
-        sim_matrix = self.similarity_f(z.unsqueeze(1), z.unsqueeze(0))
+        z = F.normalize(z, dim=1)
+        sim_matrix = torch.mm(z, z.t())
 
         sim_ij = torch.diag(sim_matrix, batch_size)
         sim_ji = torch.diag(sim_matrix, -batch_size)
-        positive_samples = torch.cat([sim_ij, sim_ji], dim=0).reshape(2 * batch_size, 1)
+        positives = torch.cat([sim_ij, sim_ji], dim=0).reshape(n_samples, 1)
 
-        mask = (~torch.eye(2 * batch_size, 2 * batch_size, dtype=bool)).to(self.device)
-        negative_samples = sim_matrix[mask].reshape(2 * batch_size, -1)
+        mask = torch.ones((n_samples, n_samples), dtype=bool, device=device)
+        mask.fill_diagonal_(False)
+        mask[torch.arange(batch_size), torch.arange(batch_size) + batch_size] = False
+        mask[torch.arange(batch_size) + batch_size, torch.arange(batch_size)] = False
+        
+        negatives = sim_matrix[mask].reshape(n_samples, -1)
 
-        logits = torch.cat([positive_samples, negative_samples], dim=1) / self.temperature
-        labels = torch.zeros(2 * batch_size).to(self.device).long()
+        logits = torch.cat([positives, negatives], dim=1) / self.temperature
+        labels = torch.zeros(n_samples, device=device).long()
 
         return self.criterion(logits, labels)

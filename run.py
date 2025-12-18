@@ -3,13 +3,13 @@ import random
 import numpy as np
 import tqdm
 import wandb
-
 import torch
+from typing import Literal
 
 from .utils import (
     conf,
     prepare_simclr_train_dataset,
-    linear_evaluation,
+    fine_tune,
 )
 from .sim_clr import (
     SimCLR,
@@ -24,9 +24,9 @@ os.environ["MKL_NUM_THREADS"] = f"{NUM_WORKERS}"
 os.environ["NUMEXPR_NUM_THREADS"] = f"{NUM_WORKERS}"
 os.environ["OMP_NUM_THREADS"] = f"{NUM_WORKERS}"
 
-np.random.seed(0)
-torch.manual_seed(0)
-random.seed(0)
+np.random.seed(conf.seed)
+torch.manual_seed(conf.seed)
+random.seed(conf.seed)
 
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
@@ -37,38 +37,25 @@ torch.set_float32_matmul_precision("high")
 os.makedirs(conf.model_saved_path, exist_ok=True)
 
 
-def main():
-    wandb.init(project="simclr", config=conf)
+def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]) -> None:
+    """Pre-train SimCLR and periodically fine-tune for evaluation.
+
+    Args:
+        model (Literal["resnet50", "vit_b_16", "efficientnet_b5"]): Encoder backbone name.
+    """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    encoder = get_encoder(conf.model).to(device)
-    simclr_model = SimCLR(encoder).to(device)
-    wandb.watch(simclr_model)
+    encoder, num_features = get_encoder(model)
+    simclr_model = SimCLR(encoder, num_features=num_features).to(device)
+    wandb.watch(simclr_model, log="gradients", log_freq=100)
 
-    contrastive_loss = NTXentLoss(temperature=conf.pretrain_temperature, device=device).to(device)
-
-    # [...] optimized using LARS with learning rate of 4.8 (= 0.3 ×BatchSize/256)
-    learning_rate = 0.3 * conf.pretrain_batch_size / 256
-
-    # Separate parameters for weight decay (exclude bias and batch norm)
-    param_weights = []
-    param_biases = []
-    for name, param in simclr_model.named_parameters():
-        if "bias" in name or "bn" in name or "batch_normalization" in name:
-            param_biases.append(param)
-        else:
-            param_weights.append(param)
-
-    parameters = [
-        {"params": param_weights, "weight_decay": conf.pretrain_weight_decay},
-        {"params": param_biases, "weight_decay": 0.0},
-    ]
+    contrastive_loss = NTXentLoss(temperature=conf.pretrain_temperature).to(device)
 
     optimizer = LARS(
-        parameters,
-        lr=learning_rate,
+        simclr_model.parameters(),
+        lr=conf.pretrain_learning_rate,
         weight_decay=conf.pretrain_weight_decay,
-        eta=0.001,
+        trust_coefficient=0.001,
     )
 
     # Warmup for 10 epochs, then Cosine Decay
@@ -83,7 +70,6 @@ def main():
 
     for epoch in tqdm.tqdm(range(conf.pretrain_epochs)):
         simclr_model.train()
-        total_loss = 0
 
         for index, batch in enumerate(contrastive_dataloader):
             images, _ = batch
@@ -100,28 +86,38 @@ def main():
 
             wandb.log({"pretrain/loss": loss.item()})
 
-            total_loss += loss.item()
-
             # For testing only - remove during actual training!
             if index == 100:
                 break
 
         scheduler.step()
 
-        if (epoch + 1) % conf.lin_eval_every == 0 or epoch == conf.pretrain_epochs - 1:
-            save_model = True if (epoch + 1) % conf.save_model_every == 0 or epoch == conf.pretrain_epochs - 1 else False
+        if (epoch + 1) % conf.eval_every == 0 or epoch == conf.pretrain_epochs - 1:
+            save_model = (epoch + 1) % conf.save_model_every == 0 or epoch == conf.pretrain_epochs - 1
             save_path = f"{conf.model_saved_path}/simclr_epoch_{epoch + 1}.pth" if save_model else None
 
-            acc = linear_evaluation(
+            frozen_acc, full_acc = fine_tune(
                 model=simclr_model.encoder,
-                config=conf,
+                num_features=num_features,
                 device=device,
                 num_workers=NUM_WORKERS,
-                save_model=save_model,
+                config=conf,
                 save_path=save_path,
             )
-            wandb.log({"lin_eval/accuracy": acc, "epoch": epoch + 1})
+            wandb.log({
+                "ft/frozen_accuracy": frozen_acc,
+                "ft/full_accuracy": full_acc,
+                "epoch": epoch + 1,
+            })
 
 
 if __name__ == "__main__":
-    main()
+    models = ["resnet50", "vit_b_16", "efficientnet_b5"]
+    for model_name in models:
+        with wandb.init(
+            project="simclr",
+            config={**conf.model_dump(), "encoder": model_name},
+            name=f"pretrain-{model_name}",
+            reinit=True,
+        ):
+            train_simclr_model(model_name)
