@@ -6,12 +6,12 @@ import wandb
 import torch
 from typing import Literal
 
-from .utils import (
+from utils import (
     conf,
     prepare_simclr_train_dataset,
     fine_tune,
 )
-from .sim_clr import (
+from sim_clr import (
     SimCLR,
     NTXentLoss,
     LARS,
@@ -49,6 +49,10 @@ def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]
     simclr_model = SimCLR(encoder, num_features=num_features).to(device)
     wandb.watch(simclr_model, log="gradients", log_freq=100)
 
+    # Define custom step metric for pretraining to avoid jumps in plots due to fine-tuning steps
+    wandb.define_metric("pretrain_step")
+    wandb.define_metric("pretrain/*", step_metric="pretrain_step")
+
     contrastive_loss = NTXentLoss(temperature=conf.pretrain_temperature).to(device)
 
     optimizer = LARS(
@@ -68,6 +72,7 @@ def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]
 
     contrastive_dataloader = prepare_simclr_train_dataset(conf.pretrain_batch_size, NUM_WORKERS, conf.image_size)
 
+    pretrain_step = 0
     for epoch in tqdm.tqdm(range(conf.pretrain_epochs)):
         simclr_model.train()
 
@@ -84,7 +89,8 @@ def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]
             loss.backward()
             optimizer.step()
 
-            wandb.log({"pretrain/loss": loss.item()})
+            wandb.log({"pretrain/loss": loss.item(), "pretrain_step": pretrain_step})
+            pretrain_step += 1
 
             # For testing only - remove during actual training!
             if index == 100:
@@ -102,6 +108,7 @@ def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]
                 device=device,
                 num_workers=NUM_WORKERS,
                 config=conf,
+                pretrain_epoch=epoch + 1,
                 save_path=save_path,
             )
             wandb.log({

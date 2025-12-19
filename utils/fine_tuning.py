@@ -1,15 +1,31 @@
 import copy
+from typing import Any
 
 import torch
 import wandb
 from torch import nn
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
-from .data import prepare__ImageNetTrain, prepare__ImageNetTest
+from utils.data import prepare__ImageNetTrain, prepare__ImageNetTest
 
 from logging import getLogger
 
 log = getLogger(__name__)
+
+
+def _ft_key(stage: str, pretrain_epoch: int, name: str) -> str:
+    """Create a W&B metric key namespaced by pretrain epoch.
+
+    Args:
+        stage (str): Metric stage prefix (e.g. "ft_frozen").
+        pretrain_epoch (int): Pretraining epoch number.
+        name (str): Base metric name.
+
+    Returns:
+        str: Fully-qualified W&B metric key.
+    """
+
+    return f"{stage}/pretrain_epoch={pretrain_epoch}/{name}"
 
 
 class FineTuneModel(nn.Module):
@@ -30,7 +46,8 @@ def fine_tune(
     num_features: int,
     device: torch.device,
     num_workers: int,
-    config,
+    config: Any,
+    pretrain_epoch: int,
     save_path: str | None = None,
 ) -> tuple[float, float]:
     """
@@ -41,7 +58,8 @@ def fine_tune(
         num_features (int): Output dimension of the encoder.
         device (torch.device): Device to perform training on.
         num_workers (int): Number of subprocesses for data loading.
-        config: Configuration object.
+        config (Any): Configuration object.
+        pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
         save_path (str | None): Path to save the best model.
 
     Returns:
@@ -75,11 +93,27 @@ def fine_tune(
     ft_model = FineTuneModel(encoder_copy, num_features).to(device)
 
     log.info("Stage 1: Training classifier with frozen encoder")
-    frozen_acc = _train_frozen(ft_model, train_dataset_subset, test_loader, device, config, num_workers)
+    frozen_acc = _train_frozen(
+        model=ft_model,
+        train_dataset=train_dataset_subset,
+        test_loader=test_loader,
+        device=device,
+        config=config,
+        num_workers=num_workers,
+        pretrain_epoch=pretrain_epoch,
+    )
     log.info(f"Stage 1 complete. Best accuracy: {frozen_acc:.2f}%")
 
     log.info("Stage 2: Full fine-tuning")
-    full_acc = _train_full(ft_model, train_dataset_subset, test_loader, device, config, num_workers)
+    full_acc = _train_full(
+        model=ft_model,
+        train_dataset=train_dataset_subset,
+        test_loader=test_loader,
+        device=device,
+        config=config,
+        num_workers=num_workers,
+        pretrain_epoch=pretrain_epoch,
+    )
     log.info(f"Stage 2 complete. Best accuracy: {full_acc:.2f}%")
 
     if save_path:
@@ -94,11 +128,21 @@ def _train_frozen(
     train_dataset: torch.utils.data.Dataset,
     test_loader: torch.utils.data.DataLoader,
     device: torch.device,
-    config,
+    config: Any,
     num_workers: int,
+    pretrain_epoch: int,
 ) -> float:
     """
     Train only the classifier head with frozen encoder.
+
+    Args:
+        model (FineTuneModel): Fine-tuning model.
+        train_dataset (torch.utils.data.Dataset): Training dataset.
+        test_loader (torch.utils.data.DataLoader): Test dataloader.
+        device (torch.device): Device to perform training on.
+        config (Any): Configuration object.
+        num_workers (int): Number of subprocesses for data loading.
+        pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
 
     Returns:
         float: Best accuracy achieved during this stage.
@@ -140,12 +184,17 @@ def _train_frozen(
             loss.backward()
             optimizer.step()
 
-            wandb.log({"ft_frozen/train_loss": loss.item()})
+            wandb.log({_ft_key("ft_frozen", pretrain_epoch, "train_loss"): loss.item()})
 
         scheduler.step()
 
         acc = _evaluate_model(model, test_loader, device)
-        wandb.log({"ft_frozen/val_accuracy": acc, "ft_frozen/epoch": epoch + 1})
+        wandb.log(
+            {
+                _ft_key("ft_frozen", pretrain_epoch, "val_accuracy"): acc,
+                _ft_key("ft_frozen", pretrain_epoch, "epoch"): epoch + 1,
+            }
+        )
         best_acc = max(best_acc, acc)
 
     return best_acc
@@ -156,11 +205,21 @@ def _train_full(
     train_dataset: torch.utils.data.Dataset,
     test_loader: torch.utils.data.DataLoader,
     device: torch.device,
-    config,
+    config: Any,
     num_workers: int,
+    pretrain_epoch: int,
 ) -> float:
     """
     Fine-tune the entire model (encoder + classifier).
+
+    Args:
+        model (FineTuneModel): Fine-tuning model.
+        train_dataset (torch.utils.data.Dataset): Training dataset.
+        test_loader (torch.utils.data.DataLoader): Test dataloader.
+        device (torch.device): Device to perform training on.
+        config (Any): Configuration object.
+        num_workers (int): Number of subprocesses for data loading.
+        pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
 
     Returns:
         float: Best accuracy achieved during this stage.
@@ -199,12 +258,17 @@ def _train_full(
             loss.backward()
             optimizer.step()
 
-            wandb.log({"ft_full/train_loss": loss.item()})
+            wandb.log({_ft_key("ft_full", pretrain_epoch, "train_loss"): loss.item()})
 
         scheduler.step()
 
         acc = _evaluate_model(model, test_loader, device)
-        wandb.log({"ft_full/val_accuracy": acc, "ft_full/epoch": epoch + 1})
+        wandb.log(
+            {
+                _ft_key("ft_full", pretrain_epoch, "val_accuracy"): acc,
+                _ft_key("ft_full", pretrain_epoch, "epoch"): epoch + 1,
+            }
+        )
         best_acc = max(best_acc, acc)
 
     return best_acc

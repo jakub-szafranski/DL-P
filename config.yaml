@@ -7,28 +7,26 @@ seed: 42
 image_size: 224
 
 ## Pre-training options
-pretrain_batch_size: 4096
+pretrain_batch_size: 256
 pretrain_learning_rate: 4.8 # [...] optimized using LARS with learning rate of 4.8 (= 0.3 ×BatchSize/256)
-pretrain_epochs: 100
-pretrain_weight_decay: 1.0e-6 # "optimized using LARS [...] and weight decay of 10−6"
+pretrain_epochs: 256
+pretrain_weight_decay: 1e-6 # "optimized using LARS [...] and weight decay of 10−6"
 pretrain_temperature: 0.5 # see appendix B.7.: Optimal temperature under different batch sizes
-
 
 ## Fine-tuning options
 ft_subset_ratio: 0.1 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
 
 # Stage 1: Frozen encoder - train only classifier head
-ft_frozen_batch_size: 4096
+ft_frozen_batch_size: 256
 ft_frozen_learning_rate: 1.6 # LearningRate = 0.1 × BatchSize/256
 ft_frozen_epochs: 10
 ft_frozen_momentum: 0.9
 
 # Stage 2: Full fine-tuning - unfreeze encoder and train entire model
-ft_full_batch_size: 4096
+ft_full_batch_size: 256
 ft_full_learning_rate: 0.8 #  LearningRate = 0.05 ×BatchSize/256
 ft_full_epochs: 30
 ft_full_momentum: 0.9
-
 
 ## Logging and saving options
 eval_every: 10 # evaluate model performance every N epochs during pre-training
