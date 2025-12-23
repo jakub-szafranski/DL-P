@@ -33,7 +33,7 @@ That's it! The `uv sync` command will:
 ### Running the project
 
 ```bash
-uv run python run.py
+uv run torchrun --nproc_per_node=4 run.py
 ```
 
 ### Adding new dependencies
@@ -58,5 +58,6 @@ Edit `config.yaml` to adjust training parameters.
 └── utils/               # Utilities
     ├── config.py        # Config loader
     ├── data.py          # Dataset utilities
+    ├── distributed.py   # torch.distributed utilities
     └── fine_tuning.py   # Fine-tuning evaluation
 ```

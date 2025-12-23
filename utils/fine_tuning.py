@@ -2,15 +2,14 @@ import copy
 from typing import Any
 
 import torch
+import torch.distributed as dist
 import wandb
 from torch import nn
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 from utils.data import prepare__ImageNetTrain, prepare__ImageNetTest
-
-from logging import getLogger
-
-log = getLogger(__name__)
+from utils.distributed import is_main_process, get_world_size
 
 
 def _ft_key(stage: str, pretrain_epoch: int, name: str) -> str:
@@ -49,6 +48,8 @@ def fine_tune(
     config: Any,
     pretrain_epoch: int,
     save_path: str | None = None,
+    distributed: bool = False,
+    local_rank: int = 0,
 ) -> tuple[float, float]:
     """
     Two-stage fine-tuning evaluation (does not modify original model).
@@ -61,6 +62,8 @@ def fine_tune(
         config (Any): Configuration object.
         pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
         save_path (str | None): Path to save the best model.
+        distributed (bool): Whether to use distributed training.
+        local_rank (int): Local GPU rank for distributed training.
 
     Returns:
         tuple[float, float]: Accuracy after stage 1 (frozen) and stage 2 (full).
@@ -68,31 +71,51 @@ def fine_tune(
     # Deep copy encoder to avoid modifying original SimCLR model
     encoder_copy = copy.deepcopy(model)
 
-    train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(size=224, scale=(0.08, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0)),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-
-    val_transform = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-
-    full_train_loader = prepare__ImageNetTrain(
-        preprocess=train_transform, batch_size=config.ft_frozen_batch_size, num_workers=num_workers
+    train_transform = transforms.Compose(
+        [
+            transforms.RandomResizedCrop(size=224, scale=(0.08, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
     )
-    train_dataset_subset = _get_data_subset(full_train_loader.dataset, config.ft_subset_ratio)
+
+    val_transform = transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+    world_size = get_world_size()
+    per_gpu_batch_size = config.ft_frozen_batch_size // world_size
+
+    full_train_dataset = prepare__ImageNetTrain(
+        preprocess=train_transform, batch_size=per_gpu_batch_size, num_workers=num_workers, distributed=distributed
+    ).dataset
+    train_dataset_subset = _get_data_subset(full_train_dataset, config.ft_subset_ratio)
     test_loader = prepare__ImageNetTest(
-        preprocess=val_transform, batch_size=config.ft_frozen_batch_size, num_workers=num_workers
+        preprocess=val_transform,
+        batch_size=per_gpu_batch_size,
+        num_workers=num_workers,
+        distributed=distributed,
     )
 
-    ft_model = FineTuneModel(encoder_copy, num_features).to(device)
+    ft_model = FineTuneModel(encoder_copy, num_features)
+    ft_model = ft_model.to(device)
 
-    log.info("Stage 1: Training classifier with frozen encoder")
+    # Freeze encoder BEFORE DDP wrapping (Stage 1 starts with frozen encoder)
+    for param in ft_model.encoder.parameters():
+        param.requires_grad = False
+
+    if distributed:
+        ft_model = DDP(ft_model, device_ids=[local_rank])
+
+    if is_main_process():
+        wandb.termlog("Stage 1: Training classifier with frozen encoder")
+
     frozen_acc = _train_frozen(
         model=ft_model,
         train_dataset=train_dataset_subset,
@@ -101,10 +124,24 @@ def fine_tune(
         config=config,
         num_workers=num_workers,
         pretrain_epoch=pretrain_epoch,
+        distributed=distributed,
     )
-    log.info(f"Stage 1 complete. Best accuracy: {frozen_acc:.2f}%")
 
-    log.info("Stage 2: Full fine-tuning")
+    if is_main_process():
+        wandb.termlog(f"Stage 1 complete. Best accuracy: {frozen_acc:.2f}%")
+        wandb.termlog("Stage 2: Full fine-tuning")
+
+    # Unfreeze encoder and re-wrap with DDP for Stage 2
+    # DDP must be re-constructed after changing requires_grad flags
+    base_model = ft_model.module if distributed else ft_model
+    for param in base_model.encoder.parameters():
+        param.requires_grad = True
+
+    if distributed:
+        ft_model = DDP(base_model, device_ids=[local_rank])
+    else:
+        ft_model = base_model
+
     full_acc = _train_full(
         model=ft_model,
         train_dataset=train_dataset_subset,
@@ -113,12 +150,20 @@ def fine_tune(
         config=config,
         num_workers=num_workers,
         pretrain_epoch=pretrain_epoch,
+        distributed=distributed,
     )
-    log.info(f"Stage 2 complete. Best accuracy: {full_acc:.2f}%")
 
-    if save_path:
-        torch.save(ft_model.state_dict(), save_path)
-        log.info(f"Model saved to {save_path}")
+    if is_main_process():
+        wandb.termlog(f"Stage 2 complete. Best accuracy: {full_acc:.2f}%")
+
+        if save_path:
+            model_to_save = ft_model.module if distributed else ft_model
+            torch.save(model_to_save.state_dict(), save_path)
+            wandb.termlog(f"Model saved to {save_path}")
+
+    # Ensure all ranks wait for model saving to complete
+    if distributed:
+        dist.barrier()
 
     return frozen_acc, full_acc
 
@@ -131,35 +176,47 @@ def _train_frozen(
     config: Any,
     num_workers: int,
     pretrain_epoch: int,
+    distributed: bool = False,
 ) -> float:
     """
     Train only the classifier head with frozen encoder.
 
     Args:
-        model (FineTuneModel): Fine-tuning model.
+        model (FineTuneModel): Fine-tuning model (or DDP-wrapped model).
         train_dataset (torch.utils.data.Dataset): Training dataset.
         test_loader (torch.utils.data.DataLoader): Test dataloader.
         device (torch.device): Device to perform training on.
         config (Any): Configuration object.
         num_workers (int): Number of subprocesses for data loading.
         pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
+        distributed (bool): Whether to use distributed training.
 
     Returns:
         float: Best accuracy achieved during this stage.
     """
-    for param in model.encoder.parameters():
-        param.requires_grad = False
+    base_model = model.module if distributed else model
+
+    # Create sampler for distributed training
+    sampler = None
+    shuffle = True
+    if distributed and dist.is_initialized():
+        sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, shuffle=True)
+        shuffle = False
+
+    world_size = get_world_size()
+    per_gpu_batch_size = config.ft_frozen_batch_size // world_size
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=config.ft_frozen_batch_size,
+        batch_size=per_gpu_batch_size,
         num_workers=num_workers,
         pin_memory=True,
-        shuffle=True,
+        shuffle=shuffle,
+        sampler=sampler,
     )
 
     optimizer = torch.optim.SGD(
-        model.classifier.parameters(),
+        base_model.classifier.parameters(),
         lr=config.ft_frozen_learning_rate,
         momentum=config.ft_frozen_momentum,
         nesterov=True,
@@ -170,31 +227,35 @@ def _train_frozen(
     best_acc = 0.0
     for epoch in range(config.ft_frozen_epochs):
         model.train()
-        model.encoder.eval()
+        base_model.encoder.eval()
+
+        if distributed and sampler is not None:
+            sampler.set_epoch(epoch)
 
         for images, labels in train_loader:
             images, labels = images.to(device), labels.to(device)
 
             optimizer.zero_grad()
-            with torch.no_grad():
-                features = model.encoder(images)
-            outputs = model.classifier(features)
+
+            outputs = model(images)
 
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
 
-            wandb.log({_ft_key("ft_frozen", pretrain_epoch, "train_loss"): loss.item()})
+            if is_main_process():
+                wandb.log({_ft_key("ft_frozen", pretrain_epoch, "train_loss"): loss.item()})
 
         scheduler.step()
 
-        acc = _evaluate_model(model, test_loader, device)
-        wandb.log(
-            {
-                _ft_key("ft_frozen", pretrain_epoch, "val_accuracy"): acc,
-                _ft_key("ft_frozen", pretrain_epoch, "epoch"): epoch + 1,
-            }
-        )
+        acc = _evaluate_model(model, test_loader, device, distributed)
+        if is_main_process():
+            wandb.log(
+                {
+                    _ft_key("ft_frozen", pretrain_epoch, "val_accuracy"): acc,
+                    _ft_key("ft_frozen", pretrain_epoch, "epoch"): epoch + 1,
+                }
+            )
         best_acc = max(best_acc, acc)
 
     return best_acc
@@ -208,31 +269,41 @@ def _train_full(
     config: Any,
     num_workers: int,
     pretrain_epoch: int,
+    distributed: bool = False,
 ) -> float:
     """
     Fine-tune the entire model (encoder + classifier).
 
     Args:
-        model (FineTuneModel): Fine-tuning model.
+        model (FineTuneModel): Fine-tuning model (or DDP-wrapped model).
         train_dataset (torch.utils.data.Dataset): Training dataset.
         test_loader (torch.utils.data.DataLoader): Test dataloader.
         device (torch.device): Device to perform training on.
         config (Any): Configuration object.
         num_workers (int): Number of subprocesses for data loading.
         pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
+        distributed (bool): Whether to use distributed training.
 
     Returns:
         float: Best accuracy achieved during this stage.
     """
-    for param in model.encoder.parameters():
-        param.requires_grad = True
+    # Create sampler for distributed training
+    sampler = None
+    shuffle = True
+    if distributed and dist.is_initialized():
+        sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, shuffle=True)
+        shuffle = False
+
+    world_size = get_world_size()
+    per_gpu_batch_size = config.ft_full_batch_size // world_size
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=config.ft_full_batch_size,
+        batch_size=per_gpu_batch_size,
         num_workers=num_workers,
         pin_memory=True,
-        shuffle=True,
+        shuffle=shuffle,
+        sampler=sampler,
     )
 
     optimizer = torch.optim.SGD(
@@ -248,6 +319,9 @@ def _train_full(
     for epoch in range(config.ft_full_epochs):
         model.train()
 
+        if distributed and sampler is not None:
+            sampler.set_epoch(epoch)
+
         for images, labels in train_loader:
             images, labels = images.to(device), labels.to(device)
 
@@ -258,23 +332,30 @@ def _train_full(
             loss.backward()
             optimizer.step()
 
-            wandb.log({_ft_key("ft_full", pretrain_epoch, "train_loss"): loss.item()})
+            if is_main_process():
+                wandb.log({_ft_key("ft_full", pretrain_epoch, "train_loss"): loss.item()})
 
         scheduler.step()
 
-        acc = _evaluate_model(model, test_loader, device)
-        wandb.log(
-            {
-                _ft_key("ft_full", pretrain_epoch, "val_accuracy"): acc,
-                _ft_key("ft_full", pretrain_epoch, "epoch"): epoch + 1,
-            }
-        )
+        acc = _evaluate_model(model, test_loader, device, distributed)
+        if is_main_process():
+            wandb.log(
+                {
+                    _ft_key("ft_full", pretrain_epoch, "val_accuracy"): acc,
+                    _ft_key("ft_full", pretrain_epoch, "epoch"): epoch + 1,
+                }
+            )
         best_acc = max(best_acc, acc)
 
     return best_acc
 
 
-def _evaluate_model(model: nn.Module, dataloader: torch.utils.data.DataLoader, device: torch.device) -> float:
+def _evaluate_model(
+    model: nn.Module,
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.device,
+    distributed: bool = False,
+) -> float:
     """
     Evaluates the model on the provided dataloader.
 
@@ -282,6 +363,7 @@ def _evaluate_model(model: nn.Module, dataloader: torch.utils.data.DataLoader, d
         model (nn.Module): The model to evaluate.
         dataloader (torch.utils.data.DataLoader): DataLoader for evaluation.
         device (torch.device): Device to perform evaluation on.
+        distributed (bool): Whether to aggregate metrics across GPUs.
 
     Returns:
         float: Accuracy percentage.
@@ -297,6 +379,15 @@ def _evaluate_model(model: nn.Module, dataloader: torch.utils.data.DataLoader, d
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
+
+    # Aggregate across all GPUs in distributed mode
+    if distributed and dist.is_initialized():
+        correct_tensor = torch.tensor(correct, device=device)
+        total_tensor = torch.tensor(total, device=device)
+        dist.all_reduce(correct_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_tensor, op=dist.ReduceOp.SUM)
+        correct = correct_tensor.item()
+        total = total_tensor.item()
 
     return 100 * correct / total
 

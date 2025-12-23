@@ -4,19 +4,19 @@ import numpy as np
 import tqdm
 import wandb
 import torch
+import torch.nn as nn
+from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
 
-from utils import (
-    conf,
-    prepare_simclr_train_dataset,
-    fine_tune,
+from utils import conf, prepare_simclr_train_dataset, fine_tune
+from utils.distributed import (
+    setup_distributed,
+    cleanup_distributed,
+    is_main_process,
+    get_world_size,
+    barrier,
 )
-from sim_clr import (
-    SimCLR,
-    NTXentLoss,
-    LARS,
-    get_encoder,
-)
+from sim_clr import SimCLR, NTXentLoss, LARS, get_encoder
 
 
 NUM_WORKERS = 20
@@ -24,34 +24,52 @@ os.environ["MKL_NUM_THREADS"] = f"{NUM_WORKERS}"
 os.environ["NUMEXPR_NUM_THREADS"] = f"{NUM_WORKERS}"
 os.environ["OMP_NUM_THREADS"] = f"{NUM_WORKERS}"
 
-np.random.seed(conf.seed)
-torch.manual_seed(conf.seed)
-random.seed(conf.seed)
 
-torch.backends.cudnn.benchmark = False
-torch.backends.cudnn.deterministic = True
-
-torch.set_float32_matmul_precision("high")
-
-
-os.makedirs(conf.model_saved_path, exist_ok=True)
-
-
-def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]) -> None:
-    """Pre-train SimCLR and periodically fine-tune for evaluation.
+def set_seed(seed: int, rank: int = 0) -> None:
+    """
+    Set random seeds for reproducibility with rank offset.
 
     Args:
-        model (Literal["resnet50", "vit_b_16", "efficientnet_b5"]): Encoder backbone name.
+        seed (int): Base random seed.
+        rank (int): Process rank offset for different data shuffling per GPU.
     """
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    np.random.seed(seed + rank)
+    torch.manual_seed(seed + rank)
+    random.seed(seed + rank)
 
-    encoder, num_features = get_encoder(model)
-    simclr_model = SimCLR(encoder, num_features=num_features).to(device)
-    wandb.watch(simclr_model, log="gradients", log_freq=100)
 
-    # Define custom step metric for pretraining to avoid jumps in plots due to fine-tuning steps
-    wandb.define_metric("pretrain_step")
-    wandb.define_metric("pretrain/*", step_metric="pretrain_step")
+def train_simclr_model(
+    model_name: Literal["resnet50", "vit_b_16", "efficientnet_b5"],
+    local_rank: int,
+    global_rank: int,
+    world_size: int,
+) -> None:
+    """
+    Pre-train SimCLR with DDP and periodically fine-tune for evaluation.
+
+    Args:
+        model_name (Literal): Encoder backbone name.
+        local_rank (int): Local GPU rank within this node.
+        global_rank (int): Global rank across all nodes.
+        world_size (int): Total number of processes.
+    """
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    distributed = world_size > 1
+
+    encoder, num_features = get_encoder(model_name)
+    simclr_model = SimCLR(encoder, num_features=num_features)
+
+    if distributed:
+        simclr_model = nn.SyncBatchNorm.convert_sync_batchnorm(simclr_model)
+
+    simclr_model = simclr_model.to(device)
+    if distributed:
+        simclr_model = DDP(simclr_model, device_ids=[local_rank])
+
+    if is_main_process():
+        wandb.watch(simclr_model, log="gradients", log_freq=100)
+        wandb.define_metric("pretrain_step")
+        wandb.define_metric("pretrain/*", step_metric="pretrain_step")
 
     contrastive_loss = NTXentLoss(temperature=conf.pretrain_temperature).to(device)
 
@@ -70,11 +88,20 @@ def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]
         optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs]
     )
 
-    contrastive_dataloader = prepare_simclr_train_dataset(conf.pretrain_batch_size, NUM_WORKERS, conf.image_size)
+    # Prepare dataloader with DistributedSampler
+    per_gpu_batch_size = conf.pretrain_batch_size // world_size
+    contrastive_dataloader = prepare_simclr_train_dataset(
+        per_gpu_batch_size, NUM_WORKERS, conf.image_size, distributed=distributed
+    )
 
     pretrain_step = 0
-    for epoch in tqdm.tqdm(range(conf.pretrain_epochs)):
+    epoch_iter = tqdm.tqdm(range(conf.pretrain_epochs)) if is_main_process() else range(conf.pretrain_epochs)
+
+    for epoch in epoch_iter:
         simclr_model.train()
+
+        if distributed and hasattr(contrastive_dataloader.sampler, "set_epoch"):
+            contrastive_dataloader.sampler.set_epoch(epoch)
 
         for index, batch in enumerate(contrastive_dataloader):
             images, _ = batch
@@ -89,8 +116,9 @@ def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]
             loss.backward()
             optimizer.step()
 
-            wandb.log({"pretrain/loss": loss.item(), "pretrain_step": pretrain_step})
-            pretrain_step += 1
+            if is_main_process():
+                wandb.log({"pretrain/loss": loss.item(), "pretrain_step": pretrain_step})
+                pretrain_step += 1
 
             # For testing only - remove during actual training!
             if index == 100:
@@ -98,33 +126,75 @@ def train_simclr_model(model: Literal["resnet50", "vit_b_16", "efficientnet_b5"]
 
         scheduler.step()
 
+        # Evaluation and checkpointing
         if (epoch + 1) % conf.eval_every == 0 or epoch == conf.pretrain_epochs - 1:
             save_model = (epoch + 1) % conf.save_model_every == 0 or epoch == conf.pretrain_epochs - 1
             save_path = f"{conf.model_saved_path}/simclr_epoch_{epoch + 1}.pth" if save_model else None
 
+            # Synchronize before evaluation
+            barrier()
+
+            base_model = simclr_model.module if distributed else simclr_model
+
             frozen_acc, full_acc = fine_tune(
-                model=simclr_model.encoder,
+                model=base_model.encoder,
                 num_features=num_features,
                 device=device,
                 num_workers=NUM_WORKERS,
                 config=conf,
                 pretrain_epoch=epoch + 1,
-                save_path=save_path,
+                save_path=save_path if is_main_process() else None,
+                distributed=distributed,
+                local_rank=local_rank,
             )
-            wandb.log({
-                "ft/frozen_accuracy": frozen_acc,
-                "ft/full_accuracy": full_acc,
-                "epoch": epoch + 1,
-            })
+
+            if is_main_process():
+                wandb.log(
+                    {
+                        "ft/frozen_accuracy": frozen_acc,
+                        "ft/full_accuracy": full_acc,
+                        "epoch": epoch + 1,
+                    }
+                )
+
+
+def main() -> None:
+    # Initialize distributed training
+    local_rank, global_rank, world_size = setup_distributed()
+
+    set_seed(conf.seed, global_rank)
+
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.set_float32_matmul_precision("high")
+
+    if is_main_process():
+        os.makedirs(conf.model_saved_path, exist_ok=True)
+
+    barrier()
+
+    models = ["resnet50", "vit_b_16", "efficientnet_b5"]
+    for model_name in models:
+        if is_main_process():
+            wandb.init(
+                project="simclr",
+                config={**conf.model_dump(), "encoder": model_name, "world_size": world_size},
+                name=f"pretrain-{model_name}-{world_size}gpu",
+                reinit=True,
+            )
+
+        barrier()
+
+        try:
+            train_simclr_model(model_name, local_rank, global_rank, world_size)
+        finally:
+            if is_main_process():
+                wandb.finish()
+
+        barrier()
+
+    cleanup_distributed()
 
 
 if __name__ == "__main__":
-    models = ["resnet50", "vit_b_16", "efficientnet_b5"]
-    for model_name in models:
-        with wandb.init(
-            project="simclr",
-            config={**conf.model_dump(), "encoder": model_name},
-            name=f"pretrain-{model_name}",
-            reinit=True,
-        ):
-            train_simclr_model(model_name)
+    main()

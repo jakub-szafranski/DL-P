@@ -1,4 +1,5 @@
 import torch
+import torch.distributed as dist
 import os
 import json
 from PIL import Image, ImageFile
@@ -98,71 +99,112 @@ def get_simclr_transforms(img_size: int, s: float = 1.0) -> torch.nn.Module:
     )
 
 
-def prepare__ImageNetTrain(preprocess: torch.nn.Module, batch_size: int, num_workers: int) -> torch.utils.data.DataLoader:
+def prepare__ImageNetTrain(
+    preprocess: torch.nn.Module,
+    batch_size: int,
+    num_workers: int,
+    distributed: bool = False,
+) -> torch.utils.data.DataLoader:
     """
     Prepares ImageNet training dataset loader.
 
     Args:
-        preprocess (torch.nn.Module): Preprocessing transformations to apply to the images.
-        batch_size (int): Number of samples per batch.
-        num_workers (int): Number of subprocesses to use for data loading.
+        preprocess (torch.nn.Module): Preprocessing transformations.
+        batch_size (int): Number of samples per batch (per GPU if distributed).
+        num_workers (int): Number of subprocesses for data loading.
+        distributed (bool): Whether to use DistributedSampler.
 
     Returns:
         torch.utils.data.DataLoader: DataLoader for the ImageNet training dataset.
     """
     _set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=preprocess)
+
+    sampler = None
+    shuffle = True
+    if distributed and dist.is_initialized():
+        sampler = torch.utils.data.distributed.DistributedSampler(_set, shuffle=True)
+        shuffle = False
+
     loader = torch.utils.data.DataLoader(
         _set,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
+        sampler=sampler,
     )
     return loader
 
 
-def prepare__ImageNetTest(preprocess: torch.nn.Module, batch_size: int, num_workers: int) -> torch.utils.data.DataLoader:
+def prepare__ImageNetTest(
+    preprocess: torch.nn.Module,
+    batch_size: int,
+    num_workers: int,
+    distributed: bool = False,
+) -> torch.utils.data.DataLoader:
     """
     Prepares ImageNet test dataset loader.
 
     Args:
-        preprocess (torch.nn.Module): Preprocessing transformations to apply to the images.
-        batch_size (int): Number of samples per batch.
-        num_workers (int): Number of subprocesses to use for data loading.
+        preprocess (torch.nn.Module): Preprocessing transformations.
+        batch_size (int): Number of samples per batch (per GPU if distributed).
+        num_workers (int): Number of subprocesses for data loading.
+        distributed (bool): Whether to use DistributedSampler.
+
     Returns:
         torch.utils.data.DataLoader: DataLoader for the ImageNet test dataset.
     """
     _set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "val", transform=preprocess)
+
+    sampler = None
+    if distributed and dist.is_initialized():
+        sampler = torch.utils.data.distributed.DistributedSampler(_set, shuffle=False)
+
     loader = torch.utils.data.DataLoader(
         _set,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
+        sampler=sampler,
     )
     return loader
 
 
-def prepare_simclr_train_dataset(batch_size: int, num_workers: int, img_size: int = 224) -> torch.utils.data.DataLoader:
+def prepare_simclr_train_dataset(
+    batch_size: int,
+    num_workers: int,
+    img_size: int = 224,
+    distributed: bool = False,
+) -> torch.utils.data.DataLoader:
     """
     Prepares ImageNet training dataset loader with SimCLR augmentations.
 
     Args:
-        batch_size (int): Number of samples per batch.
-        num_workers (int): Number of subprocesses to use for data loading.
+        batch_size (int): Number of samples per batch (per GPU if distributed).
+        num_workers (int): Number of subprocesses for data loading.
         img_size (int): Size to which images will be resized/cropped.
+        distributed (bool): Whether to use DistributedSampler.
 
     Returns:
-        torch.utils.data.DataLoader: DataLoader for the ImageNet training dataset with SimCLR augmentations.
+        torch.utils.data.DataLoader: DataLoader with SimCLR augmentations.
     """
     contrastive_transform = ContrastiveTransformations(get_simclr_transforms(img_size=img_size))
     _set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=contrastive_transform)
+
+    sampler = None
+    shuffle = True
+    if distributed and dist.is_initialized():
+        sampler = torch.utils.data.distributed.DistributedSampler(_set, shuffle=True)
+        shuffle = False
+
     loader = torch.utils.data.DataLoader(
         _set,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
         drop_last=True,
+        sampler=sampler,
     )
     return loader
