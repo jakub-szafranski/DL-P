@@ -1,4 +1,5 @@
 import copy
+import gc
 from typing import Any
 
 import torch
@@ -164,6 +165,10 @@ def fine_tune(
     # Ensure all ranks wait for model saving to complete
     if distributed:
         dist.barrier()
+
+    del ft_model, encoder_copy
+    gc.collect()
+    torch.cuda.empty_cache()
 
     return frozen_acc, full_acc
 

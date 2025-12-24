@@ -1,3 +1,4 @@
+import gc
 import os
 import random
 import numpy as np
@@ -192,6 +193,9 @@ def main() -> None:
                 wandb.finish()
 
         barrier()
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
     cleanup_distributed()
 
