@@ -71,7 +71,7 @@ class LARS(Optimizer):
                 if p.grad is None:
                     continue
 
-                grad = p.grad
+                grad = p.grad.clone()
                 is_1d_param = p.ndim == 1
 
                 # 1) Weight decay (skip 1D params like bias/BN)
