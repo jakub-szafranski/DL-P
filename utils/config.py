@@ -16,6 +16,15 @@ class Config(BaseModel):
     pretrain_weight_decay: float = Field(..., description="Weight decay for optimizer")
     pretrain_temperature: float = Field(..., description="Temperature parameter for NT-Xent loss")
 
+    # SoftMatch options
+    softmatch_subset_ratio: float = Field(..., description="Ratio of labeled data used for supervised loss")
+    softmatch_sup_weight: float = Field(..., description="Weight for supervised loss")
+    softmatch_unsup_weight: float = Field(..., description="Weight for unsupervised consistency loss")
+    softmatch_dist_align: bool = Field(..., description="Apply distribution alignment")
+    softmatch_hard_label: bool = Field(..., description="Use hard pseudo labels")
+    softmatch_ema_p: float = Field(..., description="EMA decay for probability tracking")
+    softmatch_model_ema: float = Field(..., description="EMA decay for model weights")
+
     # Fine-tuning options
     ft_subset_ratio: float = Field(..., description="Ratio of data used for fine-tuning")
 

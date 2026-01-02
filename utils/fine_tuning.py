@@ -1,6 +1,6 @@
 import copy
 import gc
-from typing import Any
+from typing import Any, Literal
 
 import torch
 import torch.distributed as dist
@@ -8,8 +8,7 @@ import wandb
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision import transforms
-from sklearn.model_selection import train_test_split
-from utils.data import prepare__ImageNetTrain, prepare__ImageNetTest
+from utils.data import prepare__ImageNetTrain, prepare__ImageNetTest, get_data_subset
 from utils.distributed import is_main_process, get_world_size
 
 
@@ -96,7 +95,7 @@ def fine_tune(
     full_train_dataset = prepare__ImageNetTrain(
         preprocess=train_transform, batch_size=per_gpu_batch_size, num_workers=num_workers, distributed=distributed
     ).dataset
-    train_dataset_subset = _get_data_subset(full_train_dataset, config.ft_subset_ratio)
+    train_dataset_subset = get_data_subset(full_train_dataset, config.ft_subset_ratio)
     test_loader = prepare__ImageNetTest(
         preprocess=val_transform,
         batch_size=per_gpu_batch_size,
@@ -253,7 +252,7 @@ def _train_frozen(
 
         scheduler.step()
 
-        acc = _evaluate_model(model, test_loader, device, distributed)
+        acc = evaluate_model(model, test_loader, device, distributed)
         if is_main_process():
             wandb.log(
                 {
@@ -342,7 +341,7 @@ def _train_full(
 
         scheduler.step()
 
-        acc = _evaluate_model(model, test_loader, device, distributed)
+        acc = evaluate_model(model, test_loader, device, distributed)
         if is_main_process():
             wandb.log(
                 {
@@ -355,7 +354,7 @@ def _train_full(
     return best_acc
 
 
-def _evaluate_model(
+def evaluate_model(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
     device: torch.device,
@@ -381,6 +380,8 @@ def _evaluate_model(
         for images, labels in dataloader:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
+            if isinstance(outputs, tuple):
+                _, outputs = outputs  # For softmatch adaptation take only classification head
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
@@ -395,23 +396,3 @@ def _evaluate_model(
         total = total_tensor.item()
 
     return 100 * correct / total
-
-
-def _get_data_subset(dataset: torch.utils.data.Dataset, subset_ratio: float) -> torch.utils.data.Subset:
-    """
-    Create a stratified subset of the dataset.
-
-    Args:
-        dataset (torch.utils.data.Dataset): Source dataset.
-        subset_ratio (float): Fraction of data to retain (0-1).
-
-    Returns:
-        torch.utils.data.Subset: Stratified subset of the dataset.
-    """
-    indices, _ = train_test_split(
-        range(len(dataset)),
-        train_size=subset_ratio,
-        stratify=dataset.targets,
-        random_state=42,
-    )
-    return torch.utils.data.Subset(dataset, indices)

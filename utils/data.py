@@ -4,6 +4,7 @@ import os
 import json
 from PIL import Image, ImageFile
 from torchvision import transforms
+from sklearn.model_selection import train_test_split
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -70,6 +71,24 @@ class ContrastiveTransformations:
         return [self.base_transforms(x), self.base_transforms(x)]
 
 
+class SoftCLRTransformations:
+    """
+    Creates weak and strong augmented versions for SoftMatch+SimCLR training.
+    Returns: [weak_aug, strong_aug_1, strong_aug_2]
+    """
+
+    def __init__(self, weak_transforms, strong_transforms):
+        self.weak_transforms = weak_transforms
+        self.strong_transforms = strong_transforms
+
+    def __call__(self, x):
+        return [
+            self.weak_transforms(x),
+            self.strong_transforms(x),
+            self.strong_transforms(x),
+        ]
+
+
 def get_simclr_transforms(img_size: int, s: float = 1.0) -> torch.nn.Module:
     """
     Returns a composition of data augmentation transformations for SimCLR.
@@ -95,6 +114,17 @@ def get_simclr_transforms(img_size: int, s: float = 1.0) -> torch.nn.Module:
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=kernel_size, sigma=(0.1, 2.0))], p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # ImageNet normalization
+        ]
+    )
+
+
+def get_weak_transforms(img_size: int) -> torch.nn.Module:
+    return transforms.Compose(
+        [
+            transforms.RandomResizedCrop(size=img_size),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
 
@@ -208,3 +238,87 @@ def prepare_simclr_train_dataset(
         sampler=sampler,
     )
     return loader
+
+
+def get_data_subset(dataset: torch.utils.data.Dataset, subset_ratio: float) -> torch.utils.data.Subset:
+    """
+    Create a stratified subset of the dataset.
+
+    Args:
+        dataset (torch.utils.data.Dataset): Source dataset.
+        subset_ratio (float): Fraction of data to retain (0-1).
+
+    Returns:
+        torch.utils.data.Subset: Stratified subset of the dataset.
+    """
+    indices, _ = train_test_split(
+        range(len(dataset)),
+        train_size=subset_ratio,
+        stratify=dataset.targets,
+        random_state=42,
+    )
+    return torch.utils.data.Subset(dataset, indices)
+
+
+def prepare_softclr_train_dataset(
+    batch_size: int,
+    num_workers: int,
+    img_size: int = 224,
+    distributed: bool = False,
+    subset_ratio: float = 0.1,
+) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
+    """
+    Prepares ImageNet training dataset loaders for SoftMatch+SimCLR.
+    
+    Full loader returns: [weak_aug, strong_aug_1, strong_aug_2], label
+    Subset loader returns: weak_aug, label
+
+    Args:
+        batch_size (int): Number of samples per batch (per GPU if distributed).
+        num_workers (int): Number of subprocesses for data loading.
+        img_size (int): Size to which images will be resized/cropped.
+        distributed (bool): Whether to use DistributedSampler.
+        subset_ratio (float): Fraction of data for the labeled subset loader.
+
+    Returns:
+        tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]: Unlabeled and labeled subset DataLoaders.
+    """
+    weak_transform = get_weak_transforms(img_size=img_size)
+    strong_transform = get_simclr_transforms(img_size=img_size)
+    softclr_transform = SoftCLRTransformations(weak_transform, strong_transform)
+    
+    _unlabeled_set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=softclr_transform)
+    
+    _labeled_set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=weak_transform)
+    _labeled_subset = get_data_subset(_labeled_set, subset_ratio)
+
+    sampler = None
+    subset_sampler = None
+    shuffle = True
+    if distributed and dist.is_initialized():
+        sampler = torch.utils.data.distributed.DistributedSampler(_unlabeled_set, shuffle=True)
+        subset_sampler = torch.utils.data.distributed.DistributedSampler(_labeled_subset, shuffle=True)
+        shuffle = False
+
+    loader = torch.utils.data.DataLoader(
+        _unlabeled_set,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=True,
+        sampler=sampler,
+    )
+    
+    subset_loader = torch.utils.data.DataLoader(
+        _labeled_subset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=True,
+        sampler=subset_sampler,
+    )
+    
+    return loader, subset_loader
+

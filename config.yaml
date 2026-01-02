@@ -1,5 +1,6 @@
-# -------- Configuration file for SimCLR training ----------
+# ============== Configuration file for model training ==============
 
+# ----------- Shared settings -------------
 model_saved_path: "model_checkpoints/" # path to save model checkpoints
 
 # Training
@@ -14,6 +15,22 @@ pretrain_epochs: 250
 pretrain_weight_decay: 1e-6 # "optimized using LARS [...] and weight decay of 10−6"
 pretrain_temperature: 0.5 # see appendix B.7.: Optimal temperature under different batch sizes
 
+## Logging and saving options
+eval_every: 10 # evaluate model performance every N epochs during pre-training
+save_model_every: 50 # save model checkpoint every N epochs during pre-training (must be multiple of eval_every)
+
+
+# ---------- SoftMatch  (SoftMatch + SimCLR training only) ----------
+softmatch_subset_ratio: 0.1 # ratio of labeled data used for supervised loss (0.1 means 10% of the training data)
+softmatch_sup_weight: 1.0 # weight for supervised loss
+softmatch_unsup_weight: 1.0 # weight for unsupervised consistency loss
+softmatch_dist_align: true # whether to apply distribution alignment
+softmatch_hard_label: true # use hard pseudo-labels (SoftMatch paper default = true)
+softmatch_ema_p: 0.999 # EMA decay for probability tracking
+softmatch_model_ema: 0.999 # EMA decay for model weights
+
+
+# ---------- Fine-tuning options (SimCLR training only) ----------
 ## Fine-tuning options
 ft_subset_ratio: 0.1 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
 
@@ -28,7 +45,3 @@ ft_full_batch_size: 1024
 ft_full_learning_rate: 0.2 #  LearningRate = 0.05 ×BatchSize/256
 ft_full_epochs: 30
 ft_full_momentum: 0.9
-
-## Logging and saving options
-eval_every: 10 # evaluate model performance every N epochs during pre-training
-save_model_every: 50 # save model checkpoint every N epochs during pre-training (must be multiple of eval_every)

@@ -14,7 +14,6 @@ from utils.distributed import (
     setup_distributed,
     cleanup_distributed,
     is_main_process,
-    get_world_size,
     barrier,
 )
 from sim_clr import SimCLR, NTXentLoss, LARS, get_encoder
@@ -42,7 +41,6 @@ def set_seed(seed: int, rank: int = 0) -> None:
 def train_simclr_model(
     model_name: Literal["resnet50", "vit_b_16", "efficientnet_b5"],
     local_rank: int,
-    global_rank: int,
     world_size: int,
 ) -> None:
     """
@@ -51,7 +49,6 @@ def train_simclr_model(
     Args:
         model_name (Literal): Encoder backbone name.
         local_rank (int): Local GPU rank within this node.
-        global_rank (int): Global rank across all nodes.
         world_size (int): Total number of processes.
     """
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
@@ -187,7 +184,7 @@ def main() -> None:
         barrier()
 
         try:
-            train_simclr_model(model_name, local_rank, global_rank, world_size)
+            train_simclr_model(model_name=model_name, local_rank=local_rank, world_size=world_size)
         finally:
             if is_main_process():
                 wandb.finish()
