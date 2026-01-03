@@ -1,7 +1,7 @@
-# SimCLR
+# SimCLR + SoftMatch
 
-Adaptation of SimCLR: A Simple Framework for Contrastive Learning of Visual Representations.
-https://arxiv.org/pdf/2002.05709
+- **SimCLR**: [A Simple Framework for Contrastive Learning of Visual Representations](https://arxiv.org/pdf/2002.05709)
+- **SoftMatch**: [SoftMatch: Addressing the Quantity-Quality Trade-off in Semi-supervised Learning](https://arxiv.org/abs/2301.10921)
 
 ## Setup
 
@@ -20,7 +20,6 @@ pip install uv
 ### 2. Create virtual environment and install dependencies
 
 ```bash
-# Create venv and sync dependencies (uv.lock will be created automatically)
 uv sync
 ```
 
@@ -32,8 +31,14 @@ That's it! The `uv sync` command will:
 
 ### Running the project
 
+**SimCLR only:**
 ```bash
-uv run torchrun --nproc_per_node=4 run.py
+uv run torchrun --nproc_per_node=4 run_simclr.py
+```
+
+**SimCLR + SoftMatch:**
+```bash
+uv run torchrun --nproc_per_node=4 run_simclr_softmatch.py
 ```
 
 ### Adding new dependencies
@@ -47,17 +52,21 @@ Edit `config.yaml` to adjust training parameters.
 ## Project Structure
 
 ```
-├── config.yaml          # Training configuration
-├── pyproject.toml       # Project metadata and dependencies
-├── uv.lock              # Locked dependency versions (auto-generated)
-├── run.py               # Main training script
-├── sim_clr/             # SimCLR implementation
-│   ├── encoder.py       # Encoder architectures
-│   ├── lars.py          # LARS optimizer
-│   └── sim_clr.py       # SimCLR model and NT-Xent loss
-└── utils/               # Utilities
-    ├── config.py        # Config loader
-    ├── data.py          # Dataset utilities
-    ├── distributed.py   # torch.distributed utilities
-    └── fine_tuning.py   # Fine-tuning evaluation
+├── config.yaml              # Training configuration
+├── pyproject.toml           # Project metadata and dependencies
+├── run_simclr.py            # SimCLR training script
+├── run_simclr_softmatch.py  # SimCLR + SoftMatch training script
+│
+├── sim_clr/                 # SimCLR implementation
+│   ├── encoder.py           # Encoder architectures
+│   ├── lars.py              # LARS optimizer
+│   └── sim_clr.py           # SimCLR model and NT-Xent loss
+├── soft_match/              # SoftMatch implementation
+│   ├── soft_clr.py          # SoftCLR model and Soft NT-Xent loss
+│   └── softmatch_training.py # SoftMatchTrainer and ModelEMA
+└── utils/                   # Utilities
+    ├── config.py            # Config loader
+    ├── data.py              # Dataset utilities
+    ├── distributed.py       # torch.distributed utilities
+    └── fine_tuning.py       # Fine-tuning evaluation
 ```
