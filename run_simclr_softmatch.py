@@ -17,8 +17,8 @@ from utils.distributed import (
     is_main_process,
     barrier,
 )
-from sim_clr import NTXentLoss, LARS, get_encoder
-from soft_match import SoftCLR, SoftMatchTrainer, ModelEMA
+from sim_clr import LARS, get_encoder
+from soft_match import SoftCLR, SoftMatchTrainer, ModelEMA, SoftNTXentLoss
 
 
 NUM_WORKERS = 20
@@ -71,7 +71,7 @@ def train_simclr_softmatch_model(
         wandb.define_metric("pretrain_step")
         wandb.define_metric("pretrain/*", step_metric="pretrain_step")
 
-    contrastive_loss = NTXentLoss(temperature=conf.pretrain_temperature).to(device)
+    contrastive_loss = SoftNTXentLoss(temperature=conf.pretrain_temperature).to(device)
 
     softmatch_trainer = SoftMatchTrainer(
         num_classes=1000,  # ImageNet classes
@@ -149,9 +149,20 @@ def train_simclr_softmatch_model(
 
             _, class_ulb_weak = softclr_model(ulb_weak)
             proj_ulb_strong_1, class_ulb_strong_1 = softclr_model(ulb_strong_1)
-            proj_ulb_strong_2, _ = softclr_model(ulb_strong_2)
+            proj_ulb_strong_2, class_ulb_strong_2 = softclr_model(ulb_strong_2)
 
-            loss_simclr = contrastive_loss(proj_ulb_strong_1, proj_ulb_strong_2)
+            # Compute probabilities for soft contrastive loss
+            probs_ulb_strong_1 = torch.softmax(class_ulb_strong_1.detach(), dim=-1)
+            probs_ulb_strong_2 = torch.softmax(class_ulb_strong_2.detach(), dim=-1)
+
+            loss_simclr = contrastive_loss(
+                z_i=proj_ulb_strong_1,
+                z_j=proj_ulb_strong_2,
+                probs_i=probs_ulb_strong_1,
+                probs_j=probs_ulb_strong_2,
+                prob_max_mu=softmatch_trainer.prob_max_mu_t,
+                prob_max_var=softmatch_trainer.prob_max_var_t,
+            )
 
             loss_softmatch_supervised = softmatch_trainer.compute_supervised_loss(class_lb, lb_labels)
 
