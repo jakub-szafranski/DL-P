@@ -37,7 +37,7 @@ ft_subset_ratio: 0.1 # ratio of data used for fine-tuning (0.1 means 10% of the 
 # Stage 1: Frozen encoder - train only classifier head
 ft_frozen_batch_size: 1024
 ft_frozen_learning_rate: 0.4 # LearningRate = 0.1 × BatchSize/256
-ft_frozen_epochs: 10
+ft_frozen_epochs: 90
 ft_frozen_momentum: 0.9
 
 # Stage 2: Full fine-tuning - unfreeze encoder and train entire model
