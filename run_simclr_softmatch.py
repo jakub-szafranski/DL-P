@@ -191,10 +191,6 @@ def train_simclr_softmatch_model(
                 })
                 pretrain_step += 1
 
-            # For testing only - remove during actual training!
-            if index == 100:
-                break
-
         scheduler.step()
 
         # Evaluation and checkpointing

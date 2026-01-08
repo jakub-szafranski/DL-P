@@ -4,7 +4,7 @@
 model_saved_path: "model_checkpoints/" # path to save model checkpoints
 
 # Models to train
-models: ["resnet50", "vit_b_16", "efficientnet_b5"] # list of encoder backbones to use - any of ["resnet50", "vit_b_16", "efficientnet_b5"]
+models: ["resnet50"] # list of encoder backbones to use - any of ["resnet50", "vit_b_16", "efficientnet_b5"]
 
 # Training
 seed: 42 
@@ -12,15 +12,15 @@ image_size: 224
 
 ## Pre-training options
 # NOTE: batch_size is TOTAL effective batch size (will be divided by num_gpus)
-pretrain_batch_size: 1024 
-pretrain_learning_rate: 1.2 # [...] optimized using LARS with learning rate of 4.8 (= 0.3 ×BatchSize/256)
-pretrain_epochs: 250
+pretrain_batch_size: 512 
+pretrain_learning_rate: 0.6 # [...] optimized using LARS with learning rate of 4.8 (= 0.3 ×BatchSize/256)
+pretrain_epochs: 200
 pretrain_weight_decay: 1e-6 # "optimized using LARS [...] and weight decay of 10−6"
 pretrain_temperature: 0.5 # see appendix B.7.: Optimal temperature under different batch sizes
 
 ## Logging and saving options
-eval_every: 10 # evaluate model performance every N epochs during pre-training
-save_model_every: 50 # save model checkpoint every N epochs during pre-training (must be multiple of eval_every)
+eval_every: 100 # evaluate model performance every N epochs during pre-training
+save_model_every: 100 # save model checkpoint every N epochs during pre-training (must be multiple of eval_every)
 
 
 # ---------- SoftMatch  (SoftMatch + SimCLR training only) ----------
@@ -35,16 +35,16 @@ softmatch_model_ema: 0.999 # EMA decay for model weights
 
 # ---------- Fine-tuning options (SimCLR training only) ----------
 ## Fine-tuning options
-ft_subset_ratio: 0.1 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
+ft_subset_ratio: 1.0 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
 
 # Stage 1: Frozen encoder - train only classifier head
-ft_frozen_batch_size: 1024
-ft_frozen_learning_rate: 0.4 # LearningRate = 0.1 × BatchSize/256
+ft_frozen_batch_size: 512
+ft_frozen_learning_rate: 0.2 # LearningRate = 0.1 × BatchSize/256
 ft_frozen_epochs: 90
 ft_frozen_momentum: 0.9
 
 # Stage 2: Full fine-tuning - unfreeze encoder and train entire model
-ft_full_batch_size: 1024
-ft_full_learning_rate: 0.2 #  LearningRate = 0.05 ×BatchSize/256
-ft_full_epochs: 30
+ft_full_batch_size: 512
+ft_full_learning_rate: 0.1 #  LearningRate = 0.05 ×BatchSize/256
+ft_full_epochs: 0 # disable full fine-tuning for paper comparison
 ft_full_momentum: 0.9

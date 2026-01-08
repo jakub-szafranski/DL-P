@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import torch.distributed as dist
 import os
 import json
@@ -251,6 +252,8 @@ def get_data_subset(dataset: torch.utils.data.Dataset, subset_ratio: float) -> t
     Returns:
         torch.utils.data.Subset: Stratified subset of the dataset.
     """
+    if np.isclose(subset_ratio, 1.0):
+        return torch.utils.data.Subset(dataset, range(len(dataset)))
     indices, _ = train_test_split(
         range(len(dataset)),
         train_size=subset_ratio,

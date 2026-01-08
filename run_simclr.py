@@ -118,10 +118,6 @@ def train_simclr_model(
                 wandb.log({"pretrain/loss": loss.item(), "pretrain_step": pretrain_step})
                 pretrain_step += 1
 
-            # For testing only - remove during actual training!
-            if index == 100:
-                break
-
         scheduler.step()
 
         # Evaluation and checkpointing
