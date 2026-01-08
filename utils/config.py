@@ -6,6 +6,8 @@ import yaml
 class Config(BaseModel):
     model_saved_path: str = Field(..., description="Path to save model checkpoints")
 
+    models: list[str] = Field(..., description="List of encoder backbones to use")
+
     seed: int = Field(..., description="Random seed for reproducibility")
     image_size: int = Field(..., description="Input image size")
 

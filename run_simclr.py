@@ -171,8 +171,7 @@ def main() -> None:
 
     barrier()
 
-    models = ["resnet50", "vit_b_16", "efficientnet_b5"]
-    for model_name in models:
+    for model_name in conf.models:
         if is_main_process():
             wandb.init(
                 project="simclr",
