@@ -26,6 +26,7 @@ class Config(BaseModel):
     softmatch_hard_label: bool = Field(..., description="Use hard pseudo labels")
     softmatch_ema_p: float = Field(..., description="EMA decay for probability tracking")
     softmatch_model_ema: float = Field(..., description="EMA decay for model weights")
+    soft_weights_epoch: int = Field(..., description="Epoch to start applying soft weights to unsupervised loss")
 
     # Fine-tuning options
     ft_subset_ratio: float = Field(..., description="Ratio of data used for fine-tuning")

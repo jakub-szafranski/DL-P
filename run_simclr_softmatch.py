@@ -162,6 +162,7 @@ def train_simclr_softmatch_model(
                 probs_j=probs_ulb_strong_2,
                 prob_max_mu=softmatch_trainer.prob_max_mu_t,
                 prob_max_var=softmatch_trainer.prob_max_var_t,
+                use_weights=epoch >= conf.soft_weights_epoch,
             )
 
             loss_softmatch_supervised = softmatch_trainer.compute_supervised_loss(class_lb, lb_labels)

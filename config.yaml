@@ -19,7 +19,7 @@ pretrain_weight_decay: 1e-6 # "optimized using LARS [...] and weight decay of 10
 pretrain_temperature: 0.5 # see appendix B.7.: Optimal temperature under different batch sizes
 
 ## Logging and saving options
-eval_every: 100 # evaluate model performance every N epochs during pre-training
+eval_every: 50 # evaluate model performance every N epochs during pre-training
 save_model_every: 100 # save model checkpoint every N epochs during pre-training (must be multiple of eval_every)
 
 
@@ -32,19 +32,21 @@ softmatch_hard_label: true # use hard pseudo-labels (SoftMatch paper default = t
 softmatch_ema_p: 0.999 # EMA decay for probability tracking
 softmatch_model_ema: 0.999 # EMA decay for model weights
 
+soft_weights_epoch: 50 # epoch to start applying soft weights to unsupervised loss
+
 
 # ---------- Fine-tuning options (SimCLR training only) ----------
 ## Fine-tuning options
-ft_subset_ratio: 1.0 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
+ft_subset_ratio: 0.1 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
 
 # Stage 1: Frozen encoder - train only classifier head
 ft_frozen_batch_size: 512
 ft_frozen_learning_rate: 0.2 # LearningRate = 0.1 × BatchSize/256
-ft_frozen_epochs: 90
+ft_frozen_epochs: 30
 ft_frozen_momentum: 0.9
 
 # Stage 2: Full fine-tuning - unfreeze encoder and train entire model
 ft_full_batch_size: 512
 ft_full_learning_rate: 0.1 #  LearningRate = 0.05 ×BatchSize/256
-ft_full_epochs: 0 # disable full fine-tuning for paper comparison
+ft_full_epochs: 60 # disable full fine-tuning for paper comparison
 ft_full_momentum: 0.9

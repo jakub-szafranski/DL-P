@@ -55,6 +55,7 @@ class SoftNTXentLoss(nn.Module):
         probs_j: torch.Tensor,
         prob_max_mu: float,
         prob_max_var: float,
+        use_weights: bool,
     ) -> torch.Tensor:
         """
         Compute Soft NT-Xent loss with pseudo-label weighting.
@@ -88,7 +89,10 @@ class SoftNTXentLoss(nn.Module):
         z = F.normalize(torch.cat([z_i_all, z_j_all], dim=0), dim=1)
         sim_matrix = torch.mm(z, z.t()) / self.temperature
 
-        weights = self._compute_soft_weights(probs_i_all, probs_j_all, prob_max_mu, prob_max_var)
+        if use_weights:
+            weights = self._compute_soft_weights(probs_i_all, probs_j_all, prob_max_mu, prob_max_var)
+        else:
+            weights = torch.ones_like(sim_matrix)
 
         pos_mask = torch.zeros((n_samples, n_samples), dtype=torch.bool, device=device)
         pos_mask[torch.arange(batch_size), torch.arange(batch_size) + batch_size] = True
