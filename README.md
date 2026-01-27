@@ -43,7 +43,7 @@ uv run torchrun --nproc_per_node=4 run_simclr_softmatch.py
 
 **SimCLR linear eval + fine tuning on saved models:**
 ```bash
-uv run torchrun --nproc_per_node=4 run_simclr.py
+uv run torchrun --nproc_per_node=4 simclr_eval.py
 ```
 
 ### Adding new dependencies
