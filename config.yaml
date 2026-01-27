@@ -48,5 +48,10 @@ ft_frozen_momentum: 0.9
 # Stage 2: Full fine-tuning - unfreeze encoder and train entire model
 ft_full_batch_size: 512
 ft_full_learning_rate: 0.1 #  LearningRate = 0.05 ×BatchSize/256
-ft_full_epochs: 60 # disable full fine-tuning for paper comparison
+ft_full_epochs: 60 
 ft_full_momentum: 0.9
+
+eval_model_paths: [
+  "model_checkpoints/simclr_epoch_100.pth ",
+  "model_checkpoints/simclr_epoch_200.pth",
+  ] # For simclr_eval.py only: list of model checkpoint paths to evaluate

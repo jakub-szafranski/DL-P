@@ -123,7 +123,7 @@ def train_simclr_model(
         # Evaluation and checkpointing
         if (epoch + 1) % conf.eval_every == 0 or epoch == conf.pretrain_epochs - 1:
             save_model = (epoch + 1) % conf.save_model_every == 0 or epoch == conf.pretrain_epochs - 1
-            save_path = f"{conf.model_saved_path}/simclr_epoch_{epoch + 1}.pth" if save_model else None
+            save_path = f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}.pth" if save_model else None
 
             # Synchronize before evaluation
             barrier()

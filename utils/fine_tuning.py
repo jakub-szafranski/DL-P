@@ -1,6 +1,6 @@
 import copy
 import gc
-from typing import Any, Literal
+from typing import Any
 
 import torch
 import torch.distributed as dist
@@ -50,6 +50,7 @@ def fine_tune(
     save_path: str | None = None,
     distributed: bool = False,
     local_rank: int = 0,
+    subset_ratio: float | None = None,
 ) -> tuple[float, float]:
     """
     Two-stage fine-tuning evaluation (does not modify original model).
@@ -64,6 +65,7 @@ def fine_tune(
         save_path (str | None): Path to save the best model.
         distributed (bool): Whether to use distributed training.
         local_rank (int): Local GPU rank for distributed training.
+        subset_ratio (float | None): Ratio of data used for fine-tuning. If None, uses config.ft_subset_ratio.
 
     Returns:
         tuple[float, float]: Accuracy after stage 1 (frozen) and stage 2 (full).
@@ -92,10 +94,12 @@ def fine_tune(
     world_size = get_world_size()
     per_gpu_batch_size = config.ft_frozen_batch_size // world_size
 
+    subset_ratio = subset_ratio if subset_ratio is not None else config.ft_subset_ratio
+
     full_train_dataset = prepare__ImageNetTrain(
         preprocess=train_transform, batch_size=per_gpu_batch_size, num_workers=num_workers, distributed=distributed
     ).dataset
-    train_dataset_subset = get_data_subset(full_train_dataset, config.ft_subset_ratio)
+    train_dataset_subset = get_data_subset(full_train_dataset, subset_ratio)
     test_loader = prepare__ImageNetTest(
         preprocess=val_transform,
         batch_size=per_gpu_batch_size,

@@ -45,6 +45,8 @@ class Config(BaseModel):
     eval_every: int = Field(..., description="Evaluate model performance every N epochs during pre-training")
     save_model_every: int = Field(..., description="Save model checkpoint every N epochs during pre-training")
 
+    eval_model_paths: list[str] = Field(..., description="List of model filepaths for evaluation")
+
     @model_validator(mode="after")
     def check_save_interval(self):
         if self.save_model_every % self.eval_every != 0:
