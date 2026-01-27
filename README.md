@@ -41,6 +41,11 @@ uv run torchrun --nproc_per_node=4 run_simclr.py
 uv run torchrun --nproc_per_node=4 run_simclr_softmatch.py
 ```
 
+**SimCLR linear eval + fine tuning on saved models:**
+```bash
+uv run torchrun --nproc_per_node=4 run_simclr.py
+```
+
 ### Adding new dependencies
 
 Add the package to `pyproject.toml` under `[project.dependencies]`, then run `uv sync`.
