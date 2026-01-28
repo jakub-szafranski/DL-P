@@ -176,7 +176,16 @@ def train_simclr_softmatch_model(
                 probs_weak=probs_ulb_weak,
             )
 
-            loss = loss_simclr + conf.softmatch_sup_weight * loss_softmatch_supervised + conf.softmatch_unsup_weight * loss_softmatch_unsupervised
+            if conf.use_decaying_loss_weight:
+                def get_decay_weight(epoch, conf):
+                    progress = (conf.pretrain_epochs - epoch) / conf.pretrain_epochs
+                    return conf.decaying_weight_min + 0.5 * (conf.decaying_weight_max - conf.decaying_weight_min) * (1 - np.cos(np.pi * progress))
+
+                softmatch_loss = conf.softmatch_sup_weight * loss_softmatch_supervised + conf.softmatch_unsup_weight * loss_softmatch_unsupervised
+                alpha = get_decay_weight(epoch, conf)
+                loss = alpha* loss_simclr + (1 - alpha) * softmatch_loss * conf.softmatch_loss_weight
+            else:
+                loss = loss_simclr + conf.softmatch_sup_weight * loss_softmatch_supervised + conf.softmatch_unsup_weight * loss_softmatch_unsupervised
 
             loss.backward()
             optimizer.step()

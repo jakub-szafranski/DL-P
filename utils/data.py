@@ -315,7 +315,7 @@ def prepare_softclr_train_dataset(
     
     subset_loader = torch.utils.data.DataLoader(
         _labeled_subset,
-        batch_size=batch_size,
+        batch_size=batch_size//8, # In SoftMatch paper, labeled batch size is 1/7 of unlabeled batch size
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
