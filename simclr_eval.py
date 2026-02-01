@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from utils.config import conf
+from utils.config import conf_simclr as conf
 from utils.fine_tuning import FineTuneModel, fine_tune
 from utils.distributed import (
     setup_distributed,

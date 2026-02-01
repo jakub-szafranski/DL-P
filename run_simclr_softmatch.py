@@ -10,7 +10,7 @@ from torchvision import transforms
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
 
-from utils import conf, prepare_softclr_train_dataset, prepare__ImageNetTest, evaluate_model
+from utils import conf_softclr as conf, prepare_softclr_train_dataset, prepare__ImageNetTest, evaluate_model
 from utils.distributed import (
     setup_distributed,
     cleanup_distributed,

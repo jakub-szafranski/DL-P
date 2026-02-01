@@ -1,4 +1,4 @@
-# ============== Configuration file for model training ==============
+# ============== Configuration file for SoftMatch + SimCLR training ==============
 
 # ----------- Shared settings -------------
 model_saved_path: "model_checkpoints/" # path to save model checkpoints
@@ -23,7 +23,7 @@ eval_every: 50 # evaluate model performance every N epochs during pre-training
 save_model_every: 100 # save model checkpoint every N epochs during pre-training (must be multiple of eval_every)
 
 
-# ---------- SoftMatch  (SoftMatch + SimCLR training only) ----------
+# ---------- SoftMatch options ----------
 softmatch_subset_ratio: 0.1 # ratio of labeled data used for supervised loss (0.1 means 10% of the training data)
 softmatch_sup_weight: 1.0 # weight for supervised loss
 softmatch_unsup_weight: 1.0 # weight for unsupervised consistency loss
@@ -38,26 +38,3 @@ softmatch_loss_weight: 2.5 # multiplier for softmatch loss in loss = simclr_loss
 use_decaying_loss_weight: true # whether to use decaying loss weight for unsupervised loss
 decaying_weight_min: 0.2 # minimum weight for decaying loss weight
 decaying_weight_max: 0.7 # maximum weight for decaying loss weight
-
-
-
-# ---------- Fine-tuning options (SimCLR training only) ----------
-## Fine-tuning options
-ft_subset_ratio: 0.1 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
-
-# Stage 1: Frozen encoder - train only classifier head
-ft_frozen_batch_size: 512
-ft_frozen_learning_rate: 0.2 # LearningRate = 0.1 × BatchSize/256
-ft_frozen_epochs: 30
-ft_frozen_momentum: 0.9
-
-# Stage 2: Full fine-tuning - unfreeze encoder and train entire model
-ft_full_batch_size: 512
-ft_full_learning_rate: 0.1 #  LearningRate = 0.05 ×BatchSize/256
-ft_full_epochs: 60 
-ft_full_momentum: 0.9
-
-eval_model_paths: [
-  "model_checkpoints/simclr_epoch_100.pth ",
-  "model_checkpoints/simclr_epoch_200.pth",
-  ] # For simclr_eval.py only: list of model checkpoint paths to evaluate

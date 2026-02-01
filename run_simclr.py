@@ -9,7 +9,7 @@ import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
 
-from utils import conf, prepare_simclr_train_dataset, fine_tune
+from utils import conf_simclr as conf, prepare_simclr_train_dataset, fine_tune
 from utils.distributed import (
     setup_distributed,
     cleanup_distributed,
