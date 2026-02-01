@@ -54,6 +54,7 @@ class SoftCLRConfig(BaseModel):
     pretrain_learning_rate: float = Field(..., description="Learning rate for pre-training")
     pretrain_epochs: int = Field(..., description="Number of pre-training epochs")
     pretrain_weight_decay: float = Field(..., description="Weight decay for optimizer")
+    pretrain_momentum: float = Field(..., description="Momentum for optimizer")
     pretrain_temperature: float = Field(..., description="Temperature parameter for NT-Xent loss")
 
     # Evaluation and saving intervals

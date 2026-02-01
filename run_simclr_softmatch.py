@@ -17,7 +17,7 @@ from utils.distributed import (
     is_main_process,
     barrier,
 )
-from sim_clr import LARS, get_encoder
+from sim_clr import get_encoder
 from soft_match import SoftCLR, SoftMatchTrainer, ModelEMA, SoftNTXentLoss
 
 
@@ -84,11 +84,12 @@ def train_simclr_softmatch_model(
     model_ema = ModelEMA(softclr_model, decay=conf.softmatch_model_ema)
     model_ema.register()
 
-    optimizer = LARS(
+    optimizer = torch.optim.SGD(
         softclr_model.parameters(),
         lr=conf.pretrain_learning_rate,
         weight_decay=conf.pretrain_weight_decay,
-        trust_coefficient=0.001,
+        momentum=conf.pretrain_momentum,
+        nesterov=True,
     )
 
     # Warmup for 10 epochs, then Cosine Decay
