@@ -127,8 +127,8 @@ def train_simclr_softmatch_model(
         for index, ulb_batch in enumerate(unlabeled_loader):
             ulb_images, _ = ulb_batch
             ulb_weak = ulb_images[0].to(device)
-            ulb_strong_1 = ulb_images[1].to(device)
-            ulb_strong_2 = ulb_images[2].to(device)
+            ulb_softmatch = ulb_images[1].to(device)
+            ulb_simclr = ulb_images[2].to(device)
 
             try:
                 lb_batch = next(labeled_iter)
@@ -148,18 +148,18 @@ def train_simclr_softmatch_model(
             _, class_lb = softclr_model(lb_images)
 
             _, class_ulb_weak = softclr_model(ulb_weak)
-            proj_ulb_strong_1, class_ulb_strong_1 = softclr_model(ulb_strong_1)
-            proj_ulb_strong_2, class_ulb_strong_2 = softclr_model(ulb_strong_2)
+            proj_ulb_softmatch, class_ulb_softmatch = softclr_model(ulb_softmatch)
+            proj_ulb_simclr, class_ulb_simclr = softclr_model(ulb_simclr)
 
             # Compute probabilities for soft contrastive loss
-            probs_ulb_strong_1 = torch.softmax(class_ulb_strong_1.detach(), dim=-1)
-            probs_ulb_strong_2 = torch.softmax(class_ulb_strong_2.detach(), dim=-1)
+            probs_ulb_softmatch = torch.softmax(class_ulb_softmatch.detach(), dim=-1)
+            probs_ulb_simclr = torch.softmax(class_ulb_simclr.detach(), dim=-1)
 
             loss_simclr = contrastive_loss(
-                z_i=proj_ulb_strong_1,
-                z_j=proj_ulb_strong_2,
-                probs_i=probs_ulb_strong_1,
-                probs_j=probs_ulb_strong_2,
+                z_i=proj_ulb_softmatch,
+                z_j=proj_ulb_simclr,
+                probs_i=probs_ulb_softmatch,
+                probs_j=probs_ulb_simclr,
                 prob_max_mu=softmatch_trainer.prob_max_mu_t,
                 prob_max_var=softmatch_trainer.prob_max_var_t,
                 use_weights=epoch >= conf.soft_weights_epoch,
@@ -172,7 +172,7 @@ def train_simclr_softmatch_model(
             softmatch_trainer.update_prob_t(probs_lb, probs_ulb_weak)
             loss_softmatch_unsupervised = softmatch_trainer.compute_unsupervised_loss(
                 logits_weak=class_ulb_weak,
-                logits_strong=class_ulb_strong_1,
+                logits_strong=class_ulb_softmatch,
                 probs_weak=probs_ulb_weak,
             )
 

@@ -75,18 +75,19 @@ class ContrastiveTransformations:
 class SoftCLRTransformations:
     """
     Creates weak and strong augmented versions for SoftMatch+SimCLR training.
-    Returns: [weak_aug, strong_aug_1, strong_aug_2]
+    Returns: [weak_aug, softmatch_aug, simclr_aug]
     """
 
-    def __init__(self, weak_transforms, strong_transforms):
+    def __init__(self, weak_transforms, softmatch_transform, simclr_transform):
         self.weak_transforms = weak_transforms
-        self.strong_transforms = strong_transforms
+        self.softmatch_transform = softmatch_transform
+        self.simclr_transform = simclr_transform
 
     def __call__(self, x):
         return [
             self.weak_transforms(x),
-            self.strong_transforms(x),
-            self.strong_transforms(x),
+            self.softmatch_transform(x),
+            self.simclr_transform(x),
         ]
 
 
@@ -124,6 +125,19 @@ def get_weak_transforms(img_size: int) -> torch.nn.Module:
         [
             transforms.RandomResizedCrop(size=img_size),
             transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+
+def get_softmatch_transforms(img_size: int) -> torch.nn.Module:
+    """Returns strong augmentation transforms for SoftMatch."""
+    return transforms.Compose(
+        [
+            transforms.RandomResizedCrop(size=img_size, scale=(0.2, 1.0)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandAugment(num_ops=2, magnitude=10),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
@@ -273,7 +287,7 @@ def prepare_softclr_train_dataset(
     """
     Prepares ImageNet training dataset loaders for SoftMatch+SimCLR.
     
-    Full loader returns: [weak_aug, strong_aug_1, strong_aug_2], label
+    Full loader returns: [weak_aug, softmatch_aug, simclr_aug], label
     Subset loader returns: weak_aug, label
 
     Args:
@@ -287,8 +301,9 @@ def prepare_softclr_train_dataset(
         tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]: Unlabeled and labeled subset DataLoaders.
     """
     weak_transform = get_weak_transforms(img_size=img_size)
-    strong_transform = get_simclr_transforms(img_size=img_size)
-    softclr_transform = SoftCLRTransformations(weak_transform, strong_transform)
+    softmatch_transform = get_softmatch_transforms(img_size=img_size)
+    simclr_transform = get_simclr_transforms(img_size=img_size)
+    softclr_transform = SoftCLRTransformations(weak_transforms=weak_transform, softmatch_transform=softmatch_transform, simclr_transform=simclr_transform)
     
     _unlabeled_set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=softclr_transform)
     
