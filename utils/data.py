@@ -1,71 +1,16 @@
 import torch
-import numpy as np
 import torch.distributed as dist
-import os
-import json
-from PIL import Image, ImageFile
-from torchvision import transforms
-from sklearn.model_selection import train_test_split
-
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+from torchvision import datasets, transforms
 
 DATASET_PATH = "/raid/kszyc/datasets/"
-DATASET_IMAGE_NET_2012_PATH = "{}/{}".format(DATASET_PATH, "ImageNet2012")
 
-with open(DATASET_IMAGE_NET_2012_PATH + "/LOC_synset_mapping.txt") as file:
-    IMAGENET_LABELS = [" ".join(line.split(" ")[1:]).replace("\n", "") for line in file]
-
-
-class ImageNetKaggle(torch.utils.data.Dataset):
-    def __init__(self, root, split, transform=None):
-        self.samples = []
-        self.targets = []
-        self.transform = transform
-        self.syn_to_class = {}
-
-        with open(os.path.join(root, "imagenet_class_index.json"), "rb") as f:
-            json_file = json.load(f)
-            for class_id, v in json_file.items():
-                self.syn_to_class[v[0]] = int(class_id)
-
-        with open(os.path.join(root, "ILSVRC2012_val_labels.json"), "rb") as f:
-            self.val_to_syn = json.load(f)
-
-        samples_dir = os.path.join(root, "ILSVRC/Data/CLS-LOC", split)
-
-        if split == "train":
-            for syn_id in sorted(os.listdir(samples_dir)):
-                syn_folder = os.path.join(samples_dir, syn_id)
-                if os.path.isdir(syn_folder):
-                    target = self.syn_to_class[syn_id]
-                    for sample in sorted(os.listdir(syn_folder)):
-                        sample_path = os.path.join(syn_folder, sample)
-                        self.samples.append(sample_path)
-                        self.targets.append(target)
-        elif split == "val":
-            for entry in sorted(os.listdir(samples_dir)):
-                syn_id = self.val_to_syn[entry]
-                target = self.syn_to_class[syn_id]
-                sample_path = os.path.join(samples_dir, entry)
-                self.samples.append(sample_path)
-                self.targets.append(target)
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, idx):
-        x = Image.open(self.samples[idx]).convert("RGB")
-        if self.transform:
-            x = self.transform(x)
-        return x, self.targets[idx]
+STL10_NUM_CLASSES = 10
 
 
 class ContrastiveTransformations:
-    """
-    Creates two augmented versions of an image for contrastive learning.
-    """
+    """Creates two augmented versions of an image for contrastive learning."""
 
-    def __init__(self, base_transforms):
+    def __init__(self, base_transforms: transforms.Compose):
         self.base_transforms = base_transforms
 
     def __call__(self, x):
@@ -75,10 +20,16 @@ class ContrastiveTransformations:
 class SoftCLRTransformations:
     """
     Creates weak and strong augmented versions for SoftMatch+SimCLR training.
+
     Returns: [weak_aug, softmatch_aug, simclr_aug]
     """
 
-    def __init__(self, weak_transforms, softmatch_transform, simclr_transform):
+    def __init__(
+        self,
+        weak_transforms: transforms.Compose,
+        softmatch_transform: transforms.Compose,
+        simclr_transform: transforms.Compose,
+    ):
         self.weak_transforms = weak_transforms
         self.softmatch_transform = softmatch_transform
         self.simclr_transform = simclr_transform
@@ -91,252 +42,201 @@ class SoftCLRTransformations:
         ]
 
 
-def get_simclr_transforms(img_size: int, s: float = 1.0) -> torch.nn.Module:
+def get_simclr_transforms(img_size: int = 96, s: float = 1.0) -> transforms.Compose:
     """
-    Returns a composition of data augmentation transformations for SimCLR.
+    Returns SimCLR augmentation pipeline.
 
     Args:
-        img_size (int): Size to which images will be resized/cropped.
-        s (float): Scaling factor for color jittering.
+        img_size (int): Target crop size.
+        s (float): Color jitter strength.
 
     Returns:
-        torch.nn.Module: Composed transformations for SimCLR.
+        transforms.Compose: Composed transformations.
     """
     color_jitter = transforms.ColorJitter(0.8 * s, 0.8 * s, 0.8 * s, 0.2 * s)
-
     kernel_size = int(0.1 * img_size)
     kernel_size = kernel_size + 1 if kernel_size % 2 == 0 else kernel_size
 
-    return transforms.Compose(
-        [
-            transforms.RandomResizedCrop(size=img_size),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomApply([color_jitter], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=kernel_size, sigma=(0.1, 2.0))], p=0.5),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # ImageNet normalization
-        ]
-    )
+    return transforms.Compose([
+        transforms.RandomResizedCrop(size=img_size),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomApply([color_jitter], p=0.8),
+        transforms.RandomGrayscale(p=0.2),
+        transforms.RandomApply(
+            [transforms.GaussianBlur(kernel_size=kernel_size, sigma=(0.1, 2.0))],
+            p=0.5,
+        ),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2471, 0.2435, 0.2616]),
+    ])
 
 
-def get_weak_transforms(img_size: int) -> torch.nn.Module:
-    return transforms.Compose(
-        [
-            transforms.RandomResizedCrop(size=img_size),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
+def get_weak_transforms(img_size: int = 96) -> transforms.Compose:
+    """Returns weak augmentation pipeline."""
+    return transforms.Compose([
+        transforms.RandomResizedCrop(size=img_size),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2471, 0.2435, 0.2616]),
+    ])
 
 
-def get_softmatch_transforms(img_size: int) -> torch.nn.Module:
+def get_softmatch_transforms(img_size: int = 96) -> transforms.Compose:
     """Returns strong augmentation transforms for SoftMatch."""
-    return transforms.Compose(
-        [
-            transforms.RandomResizedCrop(size=img_size, scale=(0.2, 1.0)),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandAugment(num_ops=2, magnitude=10),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
+    return transforms.Compose([
+        transforms.RandomResizedCrop(size=img_size, scale=(0.2, 1.0)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandAugment(num_ops=2, magnitude=10),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2471, 0.2435, 0.2616]),
+    ])
 
 
-def prepare__ImageNetTrain(
-    preprocess: torch.nn.Module,
+def get_val_transforms(img_size: int = 96) -> transforms.Compose:
+    """Returns validation/test transforms for STL-10."""
+    return transforms.Compose([
+        transforms.Resize(img_size),
+        transforms.CenterCrop(img_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2471, 0.2435, 0.2616]),
+    ])
+
+
+def _make_loader(
+    dataset: torch.utils.data.Dataset,
     batch_size: int,
     num_workers: int,
     distributed: bool = False,
+    shuffle: bool = True,
+    drop_last: bool = False,
 ) -> torch.utils.data.DataLoader:
     """
-    Prepares ImageNet training dataset loader.
+    Creates a DataLoader with optional DistributedSampler.
 
     Args:
-        preprocess (torch.nn.Module): Preprocessing transformations.
-        batch_size (int): Number of samples per batch (per GPU if distributed).
-        num_workers (int): Number of subprocesses for data loading.
-        distributed (bool): Whether to use DistributedSampler.
+        dataset (torch.utils.data.Dataset): Source dataset.
+        batch_size (int): Samples per batch.
+        num_workers (int): Data loading workers.
+        distributed (bool): Use DistributedSampler.
+        shuffle (bool): Shuffle data (ignored when distributed).
+        drop_last (bool): Drop incomplete last batch.
 
     Returns:
-        torch.utils.data.DataLoader: DataLoader for the ImageNet training dataset.
+        torch.utils.data.DataLoader: Configured DataLoader.
     """
-    _set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=preprocess)
-
     sampler = None
-    shuffle = True
     if distributed and dist.is_initialized():
-        sampler = torch.utils.data.distributed.DistributedSampler(_set, shuffle=True)
+        sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=shuffle)
         shuffle = False
 
-    loader = torch.utils.data.DataLoader(
-        _set,
+    return torch.utils.data.DataLoader(
+        dataset,
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
+        drop_last=drop_last,
         sampler=sampler,
     )
-    return loader
 
 
-def prepare__ImageNetTest(
-    preprocess: torch.nn.Module,
+def prepare_stl10_train(
+    preprocess: transforms.Compose,
     batch_size: int,
     num_workers: int,
     distributed: bool = False,
 ) -> torch.utils.data.DataLoader:
     """
-    Prepares ImageNet test dataset loader.
+    Prepares STL-10 labeled training set loader.
 
     Args:
-        preprocess (torch.nn.Module): Preprocessing transformations.
-        batch_size (int): Number of samples per batch (per GPU if distributed).
-        num_workers (int): Number of subprocesses for data loading.
-        distributed (bool): Whether to use DistributedSampler.
+        preprocess (transforms.Compose): Preprocessing transforms.
+        batch_size (int): Samples per batch.
+        num_workers (int): Data loading workers.
+        distributed (bool): Use DistributedSampler.
 
     Returns:
-        torch.utils.data.DataLoader: DataLoader for the ImageNet test dataset.
+        torch.utils.data.DataLoader: Training DataLoader.
     """
-    _set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "val", transform=preprocess)
+    ds = datasets.STL10(root=DATASET_PATH, split="train", transform=preprocess, download=False)
+    return _make_loader(ds, batch_size, num_workers, distributed, shuffle=True)
 
-    sampler = None
-    if distributed and dist.is_initialized():
-        sampler = torch.utils.data.distributed.DistributedSampler(_set, shuffle=False)
 
-    loader = torch.utils.data.DataLoader(
-        _set,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        sampler=sampler,
-    )
-    return loader
+def prepare_stl10_test(
+    preprocess: transforms.Compose,
+    batch_size: int,
+    num_workers: int,
+    distributed: bool = False,
+) -> torch.utils.data.DataLoader:
+    """
+    Prepares STL-10 test set loader.
+
+    Args:
+        preprocess (transforms.Compose): Preprocessing transforms.
+        batch_size (int): Samples per batch.
+        num_workers (int): Data loading workers.
+        distributed (bool): Use DistributedSampler.
+
+    Returns:
+        torch.utils.data.DataLoader: Test DataLoader.
+    """
+    ds = datasets.STL10(root=DATASET_PATH, split="test", transform=preprocess, download=False)
+    return _make_loader(ds, batch_size, num_workers, distributed, shuffle=False)
 
 
 def prepare_simclr_train_dataset(
     batch_size: int,
     num_workers: int,
-    img_size: int = 224,
+    img_size: int = 96,
     distributed: bool = False,
 ) -> torch.utils.data.DataLoader:
     """
-    Prepares ImageNet training dataset loader with SimCLR augmentations.
+    Prepares STL-10 train+unlabeled loader with SimCLR augmentations.
 
     Args:
-        batch_size (int): Number of samples per batch (per GPU if distributed).
-        num_workers (int): Number of subprocesses for data loading.
-        img_size (int): Size to which images will be resized/cropped.
-        distributed (bool): Whether to use DistributedSampler.
+        batch_size (int): Samples per batch.
+        num_workers (int): Data loading workers.
+        img_size (int): Target image size.
+        distributed (bool): Use DistributedSampler.
 
     Returns:
-        torch.utils.data.DataLoader: DataLoader with SimCLR augmentations.
+        torch.utils.data.DataLoader: SimCLR contrastive DataLoader.
     """
     contrastive_transform = ContrastiveTransformations(get_simclr_transforms(img_size=img_size))
-    _set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=contrastive_transform)
-
-    sampler = None
-    shuffle = True
-    if distributed and dist.is_initialized():
-        sampler = torch.utils.data.distributed.DistributedSampler(_set, shuffle=True)
-        shuffle = False
-
-    loader = torch.utils.data.DataLoader(
-        _set,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        pin_memory=True,
-        drop_last=True,
-        sampler=sampler,
-    )
-    return loader
-
-
-def get_data_subset(dataset: torch.utils.data.Dataset, subset_ratio: float) -> torch.utils.data.Subset:
-    """
-    Create a stratified subset of the dataset.
-
-    Args:
-        dataset (torch.utils.data.Dataset): Source dataset.
-        subset_ratio (float): Fraction of data to retain (0-1).
-
-    Returns:
-        torch.utils.data.Subset: Stratified subset of the dataset.
-    """
-    if np.isclose(subset_ratio, 1.0):
-        return torch.utils.data.Subset(dataset, range(len(dataset)))
-    indices, _ = train_test_split(
-        range(len(dataset)),
-        train_size=subset_ratio,
-        stratify=dataset.targets,
-        random_state=42,
-    )
-    return torch.utils.data.Subset(dataset, indices)
+    ds = datasets.STL10(root=DATASET_PATH, split="train+unlabeled", transform=contrastive_transform, download=False)
+    return _make_loader(ds, batch_size, num_workers, distributed, shuffle=True, drop_last=True)
 
 
 def prepare_softclr_train_dataset(
     batch_size: int,
     num_workers: int,
-    img_size: int = 224,
+    img_size: int = 96,
     distributed: bool = False,
-    subset_ratio: float = 0.1,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
     """
-    Prepares ImageNet training dataset loaders for SoftMatch+SimCLR.
-    
-    Full loader returns: [weak_aug, softmatch_aug, simclr_aug], label
-    Subset loader returns: weak_aug, label
+    Prepares STL-10 loaders for SoftMatch+SimCLR.
+
+    Unlabeled loader (train+unlabeled split): [weak_aug, softmatch_aug, simclr_aug], label.
+    Labeled loader (train split): weak_aug, label.
 
     Args:
-        batch_size (int): Number of samples per batch (per GPU if distributed).
-        num_workers (int): Number of subprocesses for data loading.
-        img_size (int): Size to which images will be resized/cropped.
-        distributed (bool): Whether to use DistributedSampler.
-        subset_ratio (float): Fraction of data for the labeled subset loader.
+        batch_size (int): Samples per batch for unlabeled loader.
+        num_workers (int): Data loading workers.
+        img_size (int): Target image size.
+        distributed (bool): Use DistributedSampler.
 
     Returns:
-        tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]: Unlabeled and labeled subset DataLoaders.
+        tuple[DataLoader, DataLoader]: Unlabeled and labeled DataLoaders.
     """
-    weak_transform = get_weak_transforms(img_size=img_size)
-    softmatch_transform = get_softmatch_transforms(img_size=img_size)
-    simclr_transform = get_simclr_transforms(img_size=img_size)
-    softclr_transform = SoftCLRTransformations(weak_transforms=weak_transform, softmatch_transform=softmatch_transform, simclr_transform=simclr_transform)
-    
-    _unlabeled_set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=softclr_transform)
-    
-    _labeled_set = ImageNetKaggle(DATASET_IMAGE_NET_2012_PATH, "train", transform=weak_transform)
-    _labeled_subset = get_data_subset(_labeled_set, subset_ratio)
-
-    sampler = None
-    subset_sampler = None
-    shuffle = True
-    if distributed and dist.is_initialized():
-        sampler = torch.utils.data.distributed.DistributedSampler(_unlabeled_set, shuffle=True)
-        subset_sampler = torch.utils.data.distributed.DistributedSampler(_labeled_subset, shuffle=True)
-        shuffle = False
-
-    loader = torch.utils.data.DataLoader(
-        _unlabeled_set,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        pin_memory=True,
-        drop_last=True,
-        sampler=sampler,
+    softclr_transform = SoftCLRTransformations(
+        weak_transforms=get_weak_transforms(img_size),
+        softmatch_transform=get_softmatch_transforms(img_size),
+        simclr_transform=get_simclr_transforms(img_size),
     )
-    
-    subset_loader = torch.utils.data.DataLoader(
-        _labeled_subset,
-        batch_size=batch_size//8, # In SoftMatch paper, labeled batch size is 1/7 of unlabeled batch size
-        shuffle=shuffle,
-        num_workers=num_workers,
-        pin_memory=True,
-        drop_last=True,
-        sampler=subset_sampler,
-    )
-    
-    return loader, subset_loader
+    unlabeled_ds = datasets.STL10(root=DATASET_PATH, split="train+unlabeled", transform=softclr_transform, download=False)
+    labeled_ds = datasets.STL10(root=DATASET_PATH, split="train", transform=get_weak_transforms(img_size), download=False)
 
+    unlabeled_loader = _make_loader(unlabeled_ds, batch_size, num_workers, distributed, shuffle=True, drop_last=True)
+    labeled_loader = _make_loader(labeled_ds, batch_size // 8, num_workers, distributed, shuffle=True, drop_last=True)
+
+    return unlabeled_loader, labeled_loader

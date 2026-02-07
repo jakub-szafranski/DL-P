@@ -8,7 +8,7 @@ import wandb
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision import transforms
-from utils.data import prepare__ImageNetTrain, prepare__ImageNetTest, get_data_subset
+from utils.data import prepare_stl10_train, prepare_stl10_test, get_val_transforms, STL10_NUM_CLASSES
 from utils.distributed import is_main_process, get_world_size
 
 
@@ -30,7 +30,7 @@ def _ft_key(stage: str, pretrain_epoch: int, name: str) -> str:
 class FineTuneModel(nn.Module):
     """Wrapper model for fine-tuning with a classifier head."""
 
-    def __init__(self, encoder: nn.Module, num_features: int, num_classes: int = 1000):
+    def __init__(self, encoder: nn.Module, num_features: int, num_classes: int = STL10_NUM_CLASSES):
         super().__init__()
         self.encoder = encoder
         self.classifier = nn.Linear(num_features, num_classes)
@@ -50,7 +50,6 @@ def fine_tune(
     save_path: str | None = None,
     distributed: bool = False,
     local_rank: int = 0,
-    subset_ratio: float | None = None,
 ) -> tuple[float, float]:
     """
     Two-stage fine-tuning evaluation (does not modify original model).
@@ -65,49 +64,35 @@ def fine_tune(
         save_path (str | None): Path to save the best model.
         distributed (bool): Whether to use distributed training.
         local_rank (int): Local GPU rank for distributed training.
-        subset_ratio (float | None): Ratio of data used for fine-tuning. If None, uses config.ft_subset_ratio.
 
     Returns:
         tuple[float, float]: Accuracy after stage 1 (frozen) and stage 2 (full).
     """
-    # Deep copy encoder to avoid modifying original SimCLR model
     encoder_copy = copy.deepcopy(model)
 
-    train_transform = transforms.Compose(
-        [
-            transforms.RandomResizedCrop(size=224, scale=(0.08, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0)),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
-
-    val_transform = transforms.Compose(
-        [
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(size=96, scale=(0.08, 1.0), ratio=(3.0 / 4.0, 4.0 / 3.0)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2471, 0.2435, 0.2616]),
+    ])
+    val_transform = get_val_transforms(96)
 
     world_size = get_world_size()
     per_gpu_batch_size = config.ft_frozen_batch_size // world_size
 
-    subset_ratio = subset_ratio if subset_ratio is not None else config.ft_subset_ratio
-
-    full_train_dataset = prepare__ImageNetTrain(
+    train_loader = prepare_stl10_train(
         preprocess=train_transform, batch_size=per_gpu_batch_size, num_workers=num_workers, distributed=distributed
-    ).dataset
-    train_dataset_subset = get_data_subset(full_train_dataset, subset_ratio)
-    test_loader = prepare__ImageNetTest(
+    )
+    train_dataset = train_loader.dataset
+    test_loader = prepare_stl10_test(
         preprocess=val_transform,
         batch_size=per_gpu_batch_size,
         num_workers=num_workers,
         distributed=distributed,
     )
 
-    ft_model = FineTuneModel(encoder_copy, num_features)
+    ft_model = FineTuneModel(encoder_copy, num_features, num_classes=STL10_NUM_CLASSES)
     ft_model = ft_model.to(device)
 
     # Freeze encoder BEFORE DDP wrapping (Stage 1 starts with frozen encoder)
@@ -122,7 +107,7 @@ def fine_tune(
 
     frozen_acc = _train_frozen(
         model=ft_model,
-        train_dataset=train_dataset_subset,
+        train_dataset=train_dataset,
         test_loader=test_loader,
         device=device,
         config=config,
@@ -148,7 +133,7 @@ def fine_tune(
 
     full_acc = _train_full(
         model=ft_model,
-        train_dataset=train_dataset_subset,
+        train_dataset=train_dataset,
         test_loader=test_loader,
         device=device,
         config=config,

@@ -8,13 +8,13 @@ models: ["resnet50"] # list of encoder backbones to use - any of ["resnet50", "v
 
 # Training
 seed: 42 
-image_size: 224
+image_size: 96
 
 ## Pre-training options
 # NOTE: batch_size is TOTAL effective batch size (will be divided by num_gpus)
 pretrain_batch_size: 512 
 pretrain_learning_rate: 0.1
-pretrain_epochs: 200
+pretrain_epochs: 400
 pretrain_weight_decay: 1e-4
 pretrain_momentum: 0.9
 pretrain_temperature: 0.5
@@ -25,7 +25,7 @@ save_model_every: 100 # save model checkpoint every N epochs during pre-training
 
 
 # ---------- SoftMatch options ----------
-softmatch_subset_ratio: 0.1 # ratio of labeled data used for supervised loss (0.1 means 10% of the training data)
+
 softmatch_sup_weight: 1.0 # weight for supervised loss
 softmatch_unsup_weight: 1.0 # weight for unsupervised consistency loss
 softmatch_dist_align: true # whether to apply distribution alignment
@@ -37,5 +37,5 @@ soft_weights_epoch: 50 # epoch to start applying soft weights to unsupervised lo
 softmatch_loss_weight: 2.5 # multiplier for softmatch loss in loss = simclr_loss + softmatch_loss_weight * softmatch_loss
 
 use_decaying_loss_weight: true # whether to use decaying loss weight for unsupervised loss
-decaying_weight_min: 0.2 # minimum weight for decaying loss weight
+decaying_weight_min: 0.1 # minimum weight for decaying loss weight
 decaying_weight_max: 0.7 # maximum weight for decaying loss weight

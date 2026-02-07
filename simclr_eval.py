@@ -38,16 +38,14 @@ def set_seed(seed: int, rank: int = 0) -> None:
 
 def evaluate_simclr_models(
     model_paths: list[str],
-    subset_ratios: list[float],
     local_rank: int,
     world_size: int,
 ) -> None:
     """
-    Load SimCLR encoders and perform fine-tuning evaluation with different subset ratios.
+    Load SimCLR encoders and perform fine-tuning evaluation on STL-10.
 
     Args:
         model_paths (list[str]): List of paths to saved encoder state dicts.
-        subset_ratios (list[float]): List of subset ratios for fine-tuning.
         local_rank (int): Local GPU rank within this node.
         world_size (int): Total number of processes.
     """
@@ -78,34 +76,31 @@ def evaluate_simclr_models(
         if distributed:
             encoder = DDP(encoder, device_ids=[local_rank])
 
-        for subset_ratio in subset_ratios:
-            if is_main_process():
-                wandb.termlog(f"Evaluating {model_name} with subset_ratio {subset_ratio}")
+        if is_main_process():
+            wandb.termlog(f"Evaluating {model_name} from {model_path}")
 
-            # Synchronize before evaluation
-            barrier()
+        barrier()
 
-            base_encoder = encoder.module if distributed else encoder
+        base_encoder = encoder.module if distributed else encoder
 
-            frozen_acc, full_acc = fine_tune(
-                model=base_encoder,
-                num_features=num_features,
-                device=device,
-                num_workers=NUM_WORKERS,
-                config=conf,
-                pretrain_epoch=(i+1)*conf.save_model_every,
-                save_path=None,
-                distributed=distributed,
-                local_rank=local_rank,
-                subset_ratio=subset_ratio,
-            )
+        frozen_acc, full_acc = fine_tune(
+            model=base_encoder,
+            num_features=num_features,
+            device=device,
+            num_workers=NUM_WORKERS,
+            config=conf,
+            pretrain_epoch=(i+1)*conf.save_model_every,
+            save_path=None,
+            distributed=distributed,
+            local_rank=local_rank,
+        )
 
-            if is_main_process():
-                wandb.log({
-                    f"eval/{model_name}/subset_{subset_ratio}/frozen_acc": frozen_acc,
-                    f"eval/{model_name}/subset_{subset_ratio}/full_acc": full_acc,
-                    "eval_step": i
-                })
+        if is_main_process():
+            wandb.log({
+                f"eval/{model_name}/frozen_acc": frozen_acc,
+                f"eval/{model_name}/full_acc": full_acc,
+                "eval_step": i
+            })
 
 
 def main() -> None:
@@ -128,10 +123,8 @@ def main() -> None:
 
     barrier()
 
-    subset_ratios = [0.1, 0.01]
     evaluate_simclr_models(
         model_paths=conf.eval_model_paths,
-        subset_ratios=subset_ratios,
         local_rank=local_rank,
         world_size=world_size,
     )

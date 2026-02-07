@@ -8,7 +8,7 @@ import torch.distributed.nn as dist_nn
 class SoftCLR(nn.Module):
     """SoftCLR model with encoder, projection and classification head."""
 
-    def __init__(self, encoder: nn.Module, num_features: int, projection_dim: int = 128, num_classes: int = 1000):
+    def __init__(self, encoder: nn.Module, num_features: int, projection_dim: int = 128, num_classes: int = 10):
         """
         Args:
             encoder (nn.Module): Backbone encoder (already without classification head).

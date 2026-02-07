@@ -6,11 +6,10 @@ import tqdm
 import wandb
 import torch
 import torch.nn as nn
-from torchvision import transforms
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
 
-from utils import conf_softclr as conf, prepare_softclr_train_dataset, prepare__ImageNetTest, evaluate_model
+from utils import conf_softclr as conf, prepare_softclr_train_dataset, prepare_stl10_test, evaluate_model, get_val_transforms
 from utils.distributed import (
     setup_distributed,
     cleanup_distributed,
@@ -57,7 +56,7 @@ def train_simclr_softmatch_model(
     distributed = world_size > 1
 
     encoder, num_features = get_encoder(model_name)
-    softclr_model = SoftCLR(encoder=encoder, num_features=num_features)
+    softclr_model = SoftCLR(encoder=encoder, num_features=num_features, num_classes=10)
 
     if distributed:
         softclr_model = nn.SyncBatchNorm.convert_sync_batchnorm(softclr_model)
@@ -74,7 +73,7 @@ def train_simclr_softmatch_model(
     contrastive_loss = SoftNTXentLoss(temperature=conf.pretrain_temperature).to(device)
 
     softmatch_trainer = SoftMatchTrainer(
-        num_classes=1000,  # ImageNet classes
+        num_classes=10,  # STL-10 classes
         dist_align=conf.softmatch_dist_align,
         hard_label=conf.softmatch_hard_label,
         ema_p=conf.softmatch_ema_p,
@@ -106,8 +105,7 @@ def train_simclr_softmatch_model(
         batch_size=per_gpu_batch_size, 
         num_workers=NUM_WORKERS, 
         img_size=conf.image_size, 
-        distributed=distributed, 
-        subset_ratio=conf.softmatch_subset_ratio,
+        distributed=distributed,
     )
 
     pretrain_step = 0
@@ -215,15 +213,8 @@ def train_simclr_softmatch_model(
             model_ema.apply_shadow()
             eval_model = softclr_model.module if distributed else softclr_model
 
-            val_transform = transforms.Compose(
-                [
-                    transforms.Resize(256),
-                    transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ]
-            )
-            test_loader = prepare__ImageNetTest(
+            val_transform = get_val_transforms(96)
+            test_loader = prepare_stl10_test(
                 preprocess=val_transform,
                 batch_size=per_gpu_batch_size,
                 num_workers=NUM_WORKERS,

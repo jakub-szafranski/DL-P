@@ -8,13 +8,13 @@ models: ["resnet50"] # list of encoder backbones to use - any of ["resnet50", "v
 
 # Training
 seed: 42 
-image_size: 224
+image_size: 96
 
 ## Pre-training options
 # NOTE: batch_size is TOTAL effective batch size (will be divided by num_gpus)
 pretrain_batch_size: 512 
 pretrain_learning_rate: 0.6 # [...] optimized using LARS with learning rate of 4.8 (= 0.3 ×BatchSize/256)
-pretrain_epochs: 200
+pretrain_epochs: 400
 pretrain_weight_decay: 1e-6 # "optimized using LARS [...] and weight decay of 10−6"
 pretrain_temperature: 0.5 # see appendix B.7.: Optimal temperature under different batch sizes
 
@@ -24,7 +24,6 @@ save_model_every: 100 # save model checkpoint every N epochs during pre-training
 
 
 # ---------- Fine-tuning options ----------
-ft_subset_ratio: 0.1 # ratio of data used for fine-tuning (0.1 means 10% of the training data)
 
 # Stage 1: Frozen encoder - train only classifier head
 ft_frozen_batch_size: 512

@@ -19,7 +19,6 @@ class SimCLRConfig(BaseModel):
     pretrain_temperature: float = Field(..., description="Temperature parameter for NT-Xent loss")
 
     # Fine-tuning options
-    ft_subset_ratio: float = Field(..., description="Ratio of data used for fine-tuning")
     ft_frozen_batch_size: int = Field(..., description="Batch size for frozen encoder stage")
     ft_frozen_learning_rate: float = Field(..., description="Learning rate for frozen encoder stage")
     ft_frozen_epochs: int = Field(..., description="Number of epochs for frozen encoder stage")
@@ -62,7 +61,6 @@ class SoftCLRConfig(BaseModel):
     save_model_every: int = Field(..., description="Save model checkpoint every N epochs during pre-training")
 
     # SoftMatch options
-    softmatch_subset_ratio: float = Field(..., description="Ratio of labeled data used for supervised loss")
     softmatch_sup_weight: float = Field(..., description="Weight for supervised loss")
     softmatch_unsup_weight: float = Field(..., description="Weight for unsupervised consistency loss")
     softmatch_dist_align: bool = Field(..., description="Apply distribution alignment")
