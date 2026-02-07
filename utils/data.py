@@ -158,7 +158,7 @@ def prepare_stl10_train(
     Returns:
         torch.utils.data.DataLoader: Training DataLoader.
     """
-    ds = datasets.STL10(root=DATASET_PATH, split="train", transform=preprocess, download=False)
+    ds = datasets.STL10(root=DATASET_PATH, split="train", transform=preprocess, download=True)
     return _make_loader(ds, batch_size, num_workers, distributed, shuffle=True)
 
 
@@ -180,7 +180,7 @@ def prepare_stl10_test(
     Returns:
         torch.utils.data.DataLoader: Test DataLoader.
     """
-    ds = datasets.STL10(root=DATASET_PATH, split="test", transform=preprocess, download=False)
+    ds = datasets.STL10(root=DATASET_PATH, split="test", transform=preprocess, download=True)
     return _make_loader(ds, batch_size, num_workers, distributed, shuffle=False)
 
 
@@ -203,7 +203,7 @@ def prepare_simclr_train_dataset(
         torch.utils.data.DataLoader: SimCLR contrastive DataLoader.
     """
     contrastive_transform = ContrastiveTransformations(get_simclr_transforms(img_size=img_size))
-    ds = datasets.STL10(root=DATASET_PATH, split="train+unlabeled", transform=contrastive_transform, download=False)
+    ds = datasets.STL10(root=DATASET_PATH, split="train+unlabeled", transform=contrastive_transform, download=True)
     return _make_loader(ds, batch_size, num_workers, distributed, shuffle=True, drop_last=True)
 
 
@@ -233,8 +233,8 @@ def prepare_softclr_train_dataset(
         softmatch_transform=get_softmatch_transforms(img_size),
         simclr_transform=get_simclr_transforms(img_size),
     )
-    unlabeled_ds = datasets.STL10(root=DATASET_PATH, split="train+unlabeled", transform=softclr_transform, download=False)
-    labeled_ds = datasets.STL10(root=DATASET_PATH, split="train", transform=get_weak_transforms(img_size), download=False)
+    unlabeled_ds = datasets.STL10(root=DATASET_PATH, split="train+unlabeled", transform=softclr_transform, download=True)
+    labeled_ds = datasets.STL10(root=DATASET_PATH, split="train", transform=get_weak_transforms(img_size), download=True)
 
     unlabeled_loader = _make_loader(unlabeled_ds, batch_size, num_workers, distributed, shuffle=True, drop_last=True)
     labeled_loader = _make_loader(labeled_ds, batch_size // 8, num_workers, distributed, shuffle=True, drop_last=True)
