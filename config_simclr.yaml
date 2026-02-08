@@ -27,13 +27,13 @@ save_model_every: 100 # save model checkpoint every N epochs during pre-training
 
 # Stage 1: Frozen encoder - train only classifier head
 ft_frozen_batch_size: 512
-ft_frozen_learning_rate: 0.2 # LearningRate = 0.1 × BatchSize/256
+ft_frozen_learning_rate: 0.02 # LearningRate = 0.1 × BatchSize/256
 ft_frozen_epochs: 30
 ft_frozen_momentum: 0.9
 
 # Stage 2: Full fine-tuning - unfreeze encoder and train entire model
 ft_full_batch_size: 512
-ft_full_learning_rate: 0.1 #  LearningRate = 0.05 ×BatchSize/256
+ft_full_learning_rate: 0.01 #  LearningRate = 0.05 ×BatchSize/256
 ft_full_epochs: 60 
 ft_full_momentum: 0.9
 
