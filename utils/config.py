@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
 import yaml
+import tyro
 
 
 class SimCLRConfig(BaseModel):
@@ -19,6 +20,7 @@ class SimCLRConfig(BaseModel):
     pretrain_temperature: float = Field(..., description="Temperature parameter for NT-Xent loss")
 
     # Fine-tuning options
+    ft_subset_ratios: list[float] = Field(..., description="List of data ratios used for fine-tuning evaluation")
     ft_frozen_batch_size: int = Field(..., description="Batch size for frozen encoder stage")
     ft_frozen_learning_rate: float = Field(..., description="Learning rate for frozen encoder stage")
     ft_frozen_epochs: int = Field(..., description="Number of epochs for frozen encoder stage")
@@ -91,3 +93,13 @@ softmatch_path = Path(__file__).parent.parent / "config_softclr.yaml"
 with open(softmatch_path, "r") as f:
     softmatch_config_dict = yaml.safe_load(f)
 conf_softclr = SoftCLRConfig(**softmatch_config_dict)
+
+
+def parse_simclr_cli() -> SimCLRConfig:
+    """Parse SimCLR config from YAML defaults with CLI overrides."""
+    return tyro.cli(SimCLRConfig, default=conf_simclr)
+
+
+def parse_softclr_cli() -> SoftCLRConfig:
+    """Parse SoftCLR config from YAML defaults with CLI overrides."""
+    return tyro.cli(SoftCLRConfig, default=conf_softclr)

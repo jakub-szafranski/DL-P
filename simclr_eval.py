@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from utils.config import conf_simclr as conf
+from utils.config import parse_simclr_cli, SimCLRConfig
 from utils.fine_tuning import FineTuneModel, fine_tune
 from utils.distributed import (
     setup_distributed,
@@ -40,6 +40,7 @@ def evaluate_simclr_models(
     model_paths: list[str],
     local_rank: int,
     world_size: int,
+    conf: SimCLRConfig,
 ) -> None:
     """
     Load SimCLR encoders and perform fine-tuning evaluation on STL-10.
@@ -48,6 +49,7 @@ def evaluate_simclr_models(
         model_paths (list[str]): List of paths to saved encoder state dicts.
         local_rank (int): Local GPU rank within this node.
         world_size (int): Total number of processes.
+        conf (SimCLRConfig): Configuration object.
     """
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     distributed = world_size > 1
@@ -83,27 +85,33 @@ def evaluate_simclr_models(
 
         base_encoder = encoder.module if distributed else encoder
 
-        frozen_acc, full_acc = fine_tune(
-            model=base_encoder,
-            num_features=num_features,
-            device=device,
-            num_workers=NUM_WORKERS,
-            config=conf,
-            pretrain_epoch=(i+1)*conf.save_model_every,
-            save_path=None,
-            distributed=distributed,
-            local_rank=local_rank,
-        )
+        for subset_ratio in conf.ft_subset_ratios:
+            frozen_top1, frozen_top5, full_top1, full_top5, _, _ = fine_tune(
+                model=base_encoder,
+                num_features=num_features,
+                device=device,
+                num_workers=NUM_WORKERS,
+                config=conf,
+                pretrain_epoch=(i+1)*conf.save_model_every,
+                save_path=None,
+                distributed=distributed,
+                local_rank=local_rank,
+                subset_ratio=subset_ratio,
+            )
 
-        if is_main_process():
-            wandb.log({
-                f"eval/{model_name}/frozen_acc": frozen_acc,
-                f"eval/{model_name}/full_acc": full_acc,
-                "eval_step": i
-            })
+            if is_main_process():
+                wandb.log({
+                    f"eval/{model_name}/subset_{subset_ratio}/frozen_top1": frozen_top1,
+                    f"eval/{model_name}/subset_{subset_ratio}/frozen_top5": frozen_top5,
+                    f"eval/{model_name}/subset_{subset_ratio}/full_top1": full_top1,
+                    f"eval/{model_name}/subset_{subset_ratio}/full_top5": full_top5,
+                    "eval_step": i
+                })
 
 
 def main() -> None:
+    conf = parse_simclr_cli()
+
     # Initialize distributed training
     local_rank, global_rank, world_size = setup_distributed()
 
@@ -127,6 +135,7 @@ def main() -> None:
         model_paths=conf.eval_model_paths,
         local_rank=local_rank,
         world_size=world_size,
+        conf=conf,
     )
 
     if is_main_process():

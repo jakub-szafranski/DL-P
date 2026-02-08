@@ -1,4 +1,5 @@
 import gc
+import json
 import os
 import random
 import numpy as np
@@ -9,7 +10,9 @@ import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
 
-from utils import conf_softclr as conf, prepare_softclr_train_dataset, prepare_stl10_test, evaluate_model, get_val_transforms
+from utils import prepare_softclr_train_dataset, prepare_stl10_test, evaluate_model, get_val_transforms
+from utils import parse_softclr_cli, prepare_softclr_train_dataset, evaluate_model
+from utils.config import SoftCLRConfig
 from utils.distributed import (
     setup_distributed,
     cleanup_distributed,
@@ -18,6 +21,7 @@ from utils.distributed import (
 )
 from sim_clr import get_encoder
 from soft_match import SoftCLR, SoftMatchTrainer, ModelEMA, SoftNTXentLoss
+from datetime import datetime
 
 
 NUM_WORKERS = 20
@@ -43,6 +47,7 @@ def train_simclr_softmatch_model(
     model_name: Literal["resnet50", "vit_b_16", "efficientnet_b5"],
     local_rank: int,
     world_size: int,
+    conf: SoftCLRConfig,
 ) -> None:
     """
     Train SimCLR along with SoftMatch using DDP and periodically perform evaluation steps.
@@ -51,6 +56,7 @@ def train_simclr_softmatch_model(
         model_name (Literal): Encoder backbone name.
         local_rank (int): Local GPU rank within this node.
         world_size (int): Total number of processes.
+        conf (SoftCLRConfig): Configuration object.
     """
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     distributed = world_size > 1
@@ -205,7 +211,7 @@ def train_simclr_softmatch_model(
         # Evaluation and checkpointing
         if (epoch + 1) % conf.eval_every == 0 or epoch == conf.pretrain_epochs - 1:
             save_model = (epoch + 1) % conf.save_model_every == 0 or epoch == conf.pretrain_epochs - 1
-            save_path = f"{conf.model_saved_path}/softclr_epoch_{epoch + 1}.pth" if save_model else None
+            save_path = f"{conf.model_saved_path}/softclr_{model_name}_epoch_{epoch + 1}_subset_{conf.softmatch_subset_ratio}_ts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pth" if save_model else None
 
             # Synchronize before evaluation
             barrier()
@@ -220,17 +226,19 @@ def train_simclr_softmatch_model(
                 num_workers=NUM_WORKERS,
                 distributed=distributed,
             )
-            eval_accuracy = evaluate_model(eval_model, test_loader, device, distributed)
+            top1, top5, per_class = evaluate_model(model=eval_model, dataloader=test_loader, device=device, distributed=distributed, num_classes=1000)
 
             model_ema.restore()
 
             if is_main_process():
-                wandb.log({"eval/accuracy": eval_accuracy, "epoch": epoch + 1})
-                wandb.termlog(f"Evaluation for epoch {epoch + 1} complete. Accuracy: {eval_accuracy:.2f}%")
+                wandb.log({"eval/top1": top1, "eval/top5": top5, "epoch": epoch + 1})
+                wandb.termlog(f"Epoch {epoch + 1} | Top-1: {top1:.2f}% | Top-5: {top5:.2f}%")
 
                 if save_model:
                     model_to_save = softclr_model.module if distributed else softclr_model
                     torch.save(model_to_save.state_dict(), save_path)
+                    with open(save_path.replace(".pth", "_per_class_acc.json"), "w") as f:
+                        json.dump({"top1": top1, "top5": top5, "per_class": per_class}, f)
                     wandb.termlog(f"Model saved to {save_path}")
 
             # Ensure all ranks wait for model saving to complete
@@ -239,6 +247,8 @@ def train_simclr_softmatch_model(
 
 
 def main() -> None:
+    conf = parse_softclr_cli()
+
     # Initialize distributed training
     local_rank, global_rank, world_size = setup_distributed()
 
@@ -265,7 +275,7 @@ def main() -> None:
         barrier()
 
         try:
-            train_simclr_softmatch_model(model_name=model_name, local_rank=local_rank, world_size=world_size)
+            train_simclr_softmatch_model(model_name=model_name, local_rank=local_rank, world_size=world_size, conf=conf)
         finally:
             if is_main_process():
                 wandb.finish()
