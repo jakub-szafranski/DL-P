@@ -1,5 +1,6 @@
 import copy
 import gc
+import json
 from typing import Any
 
 import torch
@@ -51,7 +52,7 @@ def fine_tune(
     distributed: bool = False,
     local_rank: int = 0,
     subset_ratio: float | None = None,
-) -> tuple[float, float]:
+) -> tuple[float, float, float, float, list[float], list[float]]:
     """
     Two-stage fine-tuning evaluation (does not modify original model).
 
@@ -68,7 +69,7 @@ def fine_tune(
         subset_ratio (float | None): Ratio of data used for fine-tuning. If None, uses config.ft_subset_ratio.
 
     Returns:
-        tuple[float, float]: Accuracy after stage 1 (frozen) and stage 2 (full).
+        tuple: (frozen_top1, frozen_top5, full_top1, full_top5, frozen_per_class, full_per_class).
     """
     # Deep copy encoder to avoid modifying original SimCLR model
     encoder_copy = copy.deepcopy(model)
@@ -120,7 +121,7 @@ def fine_tune(
     if is_main_process():
         wandb.termlog("Stage 1: Training classifier with frozen encoder")
 
-    frozen_acc = _train_frozen(
+    frozen_top1, frozen_top5, frozen_per_class = _train_frozen(
         model=ft_model,
         train_dataset=train_dataset_subset,
         test_loader=test_loader,
@@ -132,7 +133,7 @@ def fine_tune(
     )
 
     if is_main_process():
-        wandb.termlog(f"Stage 1 complete. Best accuracy: {frozen_acc:.2f}%")
+        wandb.termlog(f"Stage 1 complete. Top-1: {frozen_top1:.2f}% | Top-5: {frozen_top5:.2f}%")
         wandb.termlog("Stage 2: Full fine-tuning")
 
     # Unfreeze encoder and re-wrap with DDP for Stage 2
@@ -146,7 +147,7 @@ def fine_tune(
     else:
         ft_model = base_model
 
-    full_acc = _train_full(
+    full_top1, full_top5, full_per_class = _train_full(
         model=ft_model,
         train_dataset=train_dataset_subset,
         test_loader=test_loader,
@@ -158,12 +159,18 @@ def fine_tune(
     )
 
     if is_main_process():
-        wandb.termlog(f"Stage 2 complete. Best accuracy: {full_acc:.2f}%")
+        wandb.termlog(f"Stage 2 complete. Top-1: {full_top1:.2f}% | Top-5: {full_top5:.2f}%")
 
         if save_path:
             model_to_save = ft_model.module if distributed else ft_model
             torch.save(model_to_save.state_dict(), save_path)
             wandb.termlog(f"Model saved to {save_path}")
+
+            json_path = save_path.replace(".pth", "_per_class_acc.json")
+            with open(json_path, "w") as f:
+                json.dump({"frozen": {"top1": frozen_top1, "top5": frozen_top5, "per_class": frozen_per_class},
+                           "full": {"top1": full_top1, "top5": full_top5, "per_class": full_per_class}}, f)
+            wandb.termlog(f"Per-class accuracy saved to {json_path}")
 
     # Ensure all ranks wait for model saving to complete
     if distributed:
@@ -173,7 +180,7 @@ def fine_tune(
     gc.collect()
     torch.cuda.empty_cache()
 
-    return frozen_acc, full_acc
+    return frozen_top1, frozen_top5, full_top1, full_top5, frozen_per_class, full_per_class
 
 
 def _train_frozen(
@@ -185,7 +192,7 @@ def _train_frozen(
     num_workers: int,
     pretrain_epoch: int,
     distributed: bool = False,
-) -> float:
+) -> tuple[float, float, list[float]]:
     """
     Train only the classifier head with frozen encoder.
 
@@ -200,7 +207,7 @@ def _train_frozen(
         distributed (bool): Whether to use distributed training.
 
     Returns:
-        float: Best accuracy achieved during this stage.
+        tuple[float, float, list[float]]: Best (top1, top5, per_class) achieved.
     """
     base_model = model.module if distributed else model
 
@@ -233,6 +240,7 @@ def _train_frozen(
     criterion = nn.CrossEntropyLoss()
 
     best_acc = 0.0
+    best_result: tuple[float, float, list[float]] = (0.0, 0.0, [])
     for epoch in range(config.ft_frozen_epochs):
         model.train()
         base_model.encoder.eval()
@@ -244,9 +252,7 @@ def _train_frozen(
             images, labels = images.to(device), labels.to(device)
 
             optimizer.zero_grad()
-
             outputs = model(images)
-
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -256,17 +262,20 @@ def _train_frozen(
 
         scheduler.step()
 
-        acc = evaluate_model(model, test_loader, device, distributed)
+        top1, top5, per_class = evaluate_model(model=model, dataloader=test_loader, device=device, distributed=distributed, num_classes=1000)
         if is_main_process():
             wandb.log(
                 {
-                    _ft_key("ft_frozen", pretrain_epoch, "val_accuracy"): acc,
+                    _ft_key("ft_frozen", pretrain_epoch, "val_top1"): top1,
+                    _ft_key("ft_frozen", pretrain_epoch, "val_top5"): top5,
                     _ft_key("ft_frozen", pretrain_epoch, "epoch"): epoch + 1,
                 }
             )
-        best_acc = max(best_acc, acc)
+        if top1 > best_acc:
+            best_acc = top1
+            best_result = (top1, top5, per_class)
 
-    return best_acc
+    return best_result
 
 
 def _train_full(
@@ -278,7 +287,7 @@ def _train_full(
     num_workers: int,
     pretrain_epoch: int,
     distributed: bool = False,
-) -> float:
+) -> tuple[float, float, list[float]]:
     """
     Fine-tune the entire model (encoder + classifier).
 
@@ -293,7 +302,7 @@ def _train_full(
         distributed (bool): Whether to use distributed training.
 
     Returns:
-        float: Best accuracy achieved during this stage.
+        tuple[float, float, list[float]]: Best (top1, top5, per_class) achieved.
     """
     # Create sampler for distributed training
     sampler = None
@@ -324,6 +333,7 @@ def _train_full(
     criterion = nn.CrossEntropyLoss()
 
     best_acc = 0.0
+    best_result: tuple[float, float, list[float]] = (0.0, 0.0, [])
     for epoch in range(config.ft_full_epochs):
         model.train()
 
@@ -335,7 +345,6 @@ def _train_full(
 
             optimizer.zero_grad()
             outputs = model(images)
-
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -345,17 +354,20 @@ def _train_full(
 
         scheduler.step()
 
-        acc = evaluate_model(model, test_loader, device, distributed)
+        top1, top5, per_class = evaluate_model(model=model, dataloader=test_loader, device=device, distributed=distributed, num_classes=1000)
         if is_main_process():
             wandb.log(
                 {
-                    _ft_key("ft_full", pretrain_epoch, "val_accuracy"): acc,
+                    _ft_key("ft_full", pretrain_epoch, "val_top1"): top1,
+                    _ft_key("ft_full", pretrain_epoch, "val_top5"): top5,
                     _ft_key("ft_full", pretrain_epoch, "epoch"): epoch + 1,
                 }
             )
-        best_acc = max(best_acc, acc)
+        if top1 > best_acc:
+            best_acc = top1
+            best_result = (top1, top5, per_class)
 
-    return best_acc
+    return best_result
 
 
 def evaluate_model(
@@ -363,40 +375,65 @@ def evaluate_model(
     dataloader: torch.utils.data.DataLoader,
     device: torch.device,
     distributed: bool = False,
-) -> float:
+    num_classes: int = 1000,
+) -> tuple[float, float, list[float]]:
     """
-    Evaluates the model on the provided dataloader.
+    Evaluate the model on the given dataloader.
 
     Args:
-        model (nn.Module): The model to evaluate.
+        model (nn.Module): Model to evaluate.
         dataloader (torch.utils.data.DataLoader): DataLoader for evaluation.
         device (torch.device): Device to perform evaluation on.
-        distributed (bool): Whether to aggregate metrics across GPUs.
+        distributed (bool): Whether to use distributed evaluation.
+        num_classes (int): Number of classes for per-class accuracy.
 
     Returns:
-        float: Accuracy percentage.
+        tuple[float, float, list[float]]: Top-1 accuracy, Top-5 accuracy, per-class accuracy.
     """
     model.eval()
-    correct = 0
-    total = 0
+
+    correct1 = torch.zeros(1, device=device, dtype=torch.float32)
+    correct5 = torch.zeros(1, device=device, dtype=torch.float32)
+    total = torch.zeros(1, device=device, dtype=torch.float32)
+
+    class_correct = torch.zeros(num_classes, device=device, dtype=torch.float32)
+    class_total = torch.zeros(num_classes, device=device, dtype=torch.float32)
 
     with torch.no_grad():
         for images, labels in dataloader:
-            images, labels = images.to(device), labels.to(device)
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
+
             outputs = model(images)
-            if isinstance(outputs, tuple):
-                _, outputs = outputs  # For softmatch adaptation take only classification head
-            _, predicted = torch.max(outputs.data, 1)
+            if isinstance(outputs, (tuple, list)):
+                outputs = outputs[1] # SoftMatch returns (proj, logits)
+
+            _, top5_pred = outputs.topk(5, dim=1)
+            
+            is_correct1 = (top5_pred[:, 0] == labels)
+            is_correct5 = (top5_pred == labels.unsqueeze(1)).any(dim=1)
+
+            correct1 += is_correct1.sum()
+            correct5 += is_correct5.sum()
             total += labels.size(0)
-            correct += (predicted == labels).sum().item()
 
-    # Aggregate across all GPUs in distributed mode
+            ones = torch.ones_like(labels, dtype=torch.float32)
+            class_total.index_add_(0, labels, ones)
+            class_correct.index_add_(0, labels, is_correct1.to(torch.float32))
+
     if distributed and dist.is_initialized():
-        correct_tensor = torch.tensor(correct, device=device)
-        total_tensor = torch.tensor(total, device=device)
-        dist.all_reduce(correct_tensor, op=dist.ReduceOp.SUM)
-        dist.all_reduce(total_tensor, op=dist.ReduceOp.SUM)
-        correct = correct_tensor.item()
-        total = total_tensor.item()
+        # Sync all metrics across GPUs
+        metrics = torch.stack([correct1, correct5, total])
+        dist.all_reduce(metrics, op=dist.ReduceOp.SUM)
+        correct1, correct5, total = metrics[0], metrics[1], metrics[2]
+        
+        dist.all_reduce(class_correct, op=dist.ReduceOp.SUM)
+        dist.all_reduce(class_total, op=dist.ReduceOp.SUM)
 
-    return 100 * correct / total
+    t_val = total.item()
+    top1_acc = (correct1.item() / t_val * 100.0) if t_val > 0 else 0.0
+    top5_acc = (correct5.item() / t_val * 100.0) if t_val > 0 else 0.0
+    
+    per_class = (class_correct / class_total.clamp(min=1.0) * 100.0).cpu().tolist()
+
+    return top1_acc, top5_acc, per_class

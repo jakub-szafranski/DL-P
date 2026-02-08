@@ -1,4 +1,5 @@
 import gc
+import json
 import os
 import random
 import numpy as np
@@ -229,17 +230,19 @@ def train_simclr_softmatch_model(
                 num_workers=NUM_WORKERS,
                 distributed=distributed,
             )
-            eval_accuracy = evaluate_model(eval_model, test_loader, device, distributed)
+            top1, top5, per_class = evaluate_model(model=eval_model, dataloader=test_loader, device=device, distributed=distributed, num_classes=1000)
 
             model_ema.restore()
 
             if is_main_process():
-                wandb.log({"eval/accuracy": eval_accuracy, "epoch": epoch + 1})
-                wandb.termlog(f"Evaluation for epoch {epoch + 1} complete. Accuracy: {eval_accuracy:.2f}%")
+                wandb.log({"eval/top1": top1, "eval/top5": top5, "epoch": epoch + 1})
+                wandb.termlog(f"Epoch {epoch + 1} | Top-1: {top1:.2f}% | Top-5: {top5:.2f}%")
 
                 if save_model:
                     model_to_save = softclr_model.module if distributed else softclr_model
                     torch.save(model_to_save.state_dict(), save_path)
+                    with open(save_path.replace(".pth", "_per_class_acc.json"), "w") as f:
+                        json.dump({"top1": top1, "top5": top5, "per_class": per_class}, f)
                     wandb.termlog(f"Model saved to {save_path}")
 
             # Ensure all ranks wait for model saving to complete

@@ -87,7 +87,7 @@ def evaluate_simclr_models(
 
             base_encoder = encoder.module if distributed else encoder
 
-            frozen_acc, full_acc = fine_tune(
+            frozen_top1, frozen_top5, full_top1, full_top5, _, _ = fine_tune(
                 model=base_encoder,
                 num_features=num_features,
                 device=device,
@@ -102,8 +102,10 @@ def evaluate_simclr_models(
 
             if is_main_process():
                 wandb.log({
-                    f"eval/{model_name}/subset_{subset_ratio}/frozen_acc": frozen_acc,
-                    f"eval/{model_name}/subset_{subset_ratio}/full_acc": full_acc,
+                    f"eval/{model_name}/subset_{subset_ratio}/frozen_top1": frozen_top1,
+                    f"eval/{model_name}/subset_{subset_ratio}/frozen_top5": frozen_top5,
+                    f"eval/{model_name}/subset_{subset_ratio}/full_top1": full_top1,
+                    f"eval/{model_name}/subset_{subset_ratio}/full_top5": full_top5,
                     "eval_step": i
                 })
 

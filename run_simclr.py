@@ -130,7 +130,7 @@ def train_simclr_model(
 
             base_model = simclr_model.module if distributed else simclr_model
 
-            frozen_acc, full_acc = fine_tune(
+            frozen_top1, frozen_top5, full_top1, full_top5, _, _ = fine_tune(
                 model=base_model.encoder,
                 num_features=num_features,
                 device=device,
@@ -145,8 +145,10 @@ def train_simclr_model(
             if is_main_process():
                 wandb.log(
                     {
-                        "ft/frozen_accuracy": frozen_acc,
-                        "ft/full_accuracy": full_acc,
+                        "ft/frozen_top1": frozen_top1,
+                        "ft/frozen_top5": frozen_top5,
+                        "ft/full_top1": full_top1,
+                        "ft/full_top5": full_top5,
                         "epoch": epoch + 1,
                     }
                 )
