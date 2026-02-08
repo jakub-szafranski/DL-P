@@ -14,7 +14,7 @@ image_size: 224
 # NOTE: batch_size is TOTAL effective batch size (will be divided by num_gpus)
 pretrain_batch_size: 512 
 pretrain_learning_rate: 0.6 # [...] optimized using LARS with learning rate of 4.8 (= 0.3 ×BatchSize/256)
-pretrain_epochs: 200
+pretrain_epochs: 400
 pretrain_weight_decay: 1e-6 # "optimized using LARS [...] and weight decay of 10−6"
 pretrain_temperature: 0.5 # see appendix B.7.: Optimal temperature under different batch sizes
 
