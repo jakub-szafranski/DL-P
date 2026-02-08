@@ -129,7 +129,7 @@ def train_simclr_model(
             save_model = (epoch + 1) % conf.save_model_every == 0 or epoch == conf.pretrain_epochs - 1
 
             if save_model and is_main_process():
-                simclr_save_path = f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}_ts_{datetime.now().strftime('%H_%d/%m')}.pth"
+                simclr_save_path = f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}_ts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pth"
                 model_to_save = simclr_model.module if distributed else simclr_model
                 torch.save(model_to_save.state_dict(), simclr_save_path)
                 wandb.termlog(f"Saved SimCLR model checkpoint to {simclr_save_path}")
@@ -139,7 +139,7 @@ def train_simclr_model(
 
             for subset_ratio in conf.ft_subset_ratios:
                 ft_save_path = (
-                    f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}_subset_{subset_ratio}_ts_{datetime.now().strftime('%H_%d/%m')}_ft.pth"
+                    f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}_subset_{subset_ratio}_ts_{datetime.now().strftime('%Y%m%d_%H%M%S')}_ft.pth"
                     if save_model else None
                 )
                 frozen_top1, frozen_top5, full_top1, full_top5, _, _ = fine_tune(
