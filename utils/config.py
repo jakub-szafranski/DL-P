@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, model_validator
 from pathlib import Path
 import yaml
+import tyro
 
 
 class SimCLRConfig(BaseModel):
@@ -93,3 +94,13 @@ softmatch_path = Path(__file__).parent.parent / "config_softclr.yaml"
 with open(softmatch_path, "r") as f:
     softmatch_config_dict = yaml.safe_load(f)
 conf_softclr = SoftCLRConfig(**softmatch_config_dict)
+
+
+def parse_simclr_cli() -> SimCLRConfig:
+    """Parse SimCLR config from YAML defaults with CLI overrides."""
+    return tyro.cli(SimCLRConfig, default=conf_simclr)
+
+
+def parse_softclr_cli() -> SoftCLRConfig:
+    """Parse SoftCLR config from YAML defaults with CLI overrides."""
+    return tyro.cli(SoftCLRConfig, default=conf_softclr)

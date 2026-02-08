@@ -10,7 +10,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
 from datetime import datetime
 
-from utils import conf_simclr as conf, prepare_simclr_train_dataset, fine_tune
+from utils import parse_simclr_cli, prepare_simclr_train_dataset, fine_tune
+from utils.config import SimCLRConfig
 from utils.distributed import (
     setup_distributed,
     cleanup_distributed,
@@ -43,6 +44,7 @@ def train_simclr_model(
     model_name: Literal["resnet50", "vit_b_16", "efficientnet_b5"],
     local_rank: int,
     world_size: int,
+    conf: SimCLRConfig,
 ) -> None:
     """
     Pre-train SimCLR with DDP and periodically fine-tune for evaluation.
@@ -51,6 +53,7 @@ def train_simclr_model(
         model_name (Literal): Encoder backbone name.
         local_rank (int): Local GPU rank within this node.
         world_size (int): Total number of processes.
+        conf (SimCLRConfig): Configuration object.
     """
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     distributed = world_size > 1
@@ -166,6 +169,8 @@ def train_simclr_model(
 
 
 def main() -> None:
+    conf = parse_simclr_cli()
+
     # Initialize distributed training
     local_rank, global_rank, world_size = setup_distributed()
 
@@ -192,7 +197,7 @@ def main() -> None:
         barrier()
 
         try:
-            train_simclr_model(model_name=model_name, local_rank=local_rank, world_size=world_size)
+            train_simclr_model(model_name=model_name, local_rank=local_rank, world_size=world_size, conf=conf)
         finally:
             if is_main_process():
                 wandb.finish()

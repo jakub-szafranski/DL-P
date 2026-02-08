@@ -11,7 +11,8 @@ from torchvision import transforms
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
 
-from utils import conf_softclr as conf, prepare_softclr_train_dataset, prepare__ImageNetTest, evaluate_model
+from utils import parse_softclr_cli, prepare_softclr_train_dataset, prepare__ImageNetTest, evaluate_model
+from utils.config import SoftCLRConfig
 from utils.distributed import (
     setup_distributed,
     cleanup_distributed,
@@ -46,6 +47,7 @@ def train_simclr_softmatch_model(
     model_name: Literal["resnet50", "vit_b_16", "efficientnet_b5"],
     local_rank: int,
     world_size: int,
+    conf: SoftCLRConfig,
 ) -> None:
     """
     Train SimCLR along with SoftMatch using DDP and periodically perform evaluation steps.
@@ -54,6 +56,7 @@ def train_simclr_softmatch_model(
         model_name (Literal): Encoder backbone name.
         local_rank (int): Local GPU rank within this node.
         world_size (int): Total number of processes.
+        conf (SoftCLRConfig): Configuration object.
     """
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     distributed = world_size > 1
@@ -252,6 +255,8 @@ def train_simclr_softmatch_model(
 
 
 def main() -> None:
+    conf = parse_softclr_cli()
+
     # Initialize distributed training
     local_rank, global_rank, world_size = setup_distributed()
 
@@ -278,7 +283,7 @@ def main() -> None:
         barrier()
 
         try:
-            train_simclr_softmatch_model(model_name=model_name, local_rank=local_rank, world_size=world_size)
+            train_simclr_softmatch_model(model_name=model_name, local_rank=local_rank, world_size=world_size, conf=conf)
         finally:
             if is_main_process():
                 wandb.finish()

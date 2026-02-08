@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from utils.config import conf_simclr as conf
+from utils.config import parse_simclr_cli, SimCLRConfig
 from utils.fine_tuning import FineTuneModel, fine_tune
 from utils.distributed import (
     setup_distributed,
@@ -41,6 +41,7 @@ def evaluate_simclr_models(
     subset_ratios: list[float],
     local_rank: int,
     world_size: int,
+    conf: SimCLRConfig,
 ) -> None:
     """
     Load SimCLR encoders and perform fine-tuning evaluation with different subset ratios.
@@ -50,6 +51,7 @@ def evaluate_simclr_models(
         subset_ratios (list[float]): List of subset ratios for fine-tuning.
         local_rank (int): Local GPU rank within this node.
         world_size (int): Total number of processes.
+        conf (SimCLRConfig): Configuration object.
     """
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     distributed = world_size > 1
@@ -111,6 +113,8 @@ def evaluate_simclr_models(
 
 
 def main() -> None:
+    conf = parse_simclr_cli()
+
     # Initialize distributed training
     local_rank, global_rank, world_size = setup_distributed()
 
@@ -136,6 +140,7 @@ def main() -> None:
         subset_ratios=subset_ratios,
         local_rank=local_rank,
         world_size=world_size,
+        conf=conf,
     )
 
     if is_main_process():
