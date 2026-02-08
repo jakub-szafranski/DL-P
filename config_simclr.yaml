@@ -38,6 +38,8 @@ ft_full_epochs: 60
 ft_full_momentum: 0.9
 
 eval_model_paths: [
-  "model_checkpoints/simclr_epoch_100.pth",
-  "model_checkpoints/simclr_epoch_200.pth",
+  "model_checkpoints/simclr_resnet50_epoch_100.pth",
+  "model_checkpoints/simclr_resnet50_epoch_200.pth",
+  "model_checkpoints/simclr_resnet50_epoch_300.pth",
+  "model_checkpoints/simclr_resnet50_epoch_400.pth"
   ] # For simclr_eval.py only: list of model checkpoint paths to evaluate
