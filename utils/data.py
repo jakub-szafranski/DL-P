@@ -145,6 +145,7 @@ def prepare_stl10_train(
     batch_size: int,
     num_workers: int,
     distributed: bool = False,
+    fold: int | None = 0,
 ) -> torch.utils.data.DataLoader:
     """
     Prepares STL-10 labeled training set loader.
@@ -154,11 +155,16 @@ def prepare_stl10_train(
         batch_size (int): Samples per batch.
         num_workers (int): Data loading workers.
         distributed (bool): Use DistributedSampler.
+        fold (int | None): Which 1k fold to use (0-9). None uses all 5k labels.
 
     Returns:
         torch.utils.data.DataLoader: Training DataLoader.
     """
-    ds = datasets.STL10(root=DATASET_PATH, split="train", transform=preprocess, download=True)
+    if fold is not None:
+        ds = datasets.STL10(root=DATASET_PATH, split="train", folds=fold, transform=preprocess, download=True)
+    else:
+        ds = datasets.STL10(root=DATASET_PATH, split="train", transform=preprocess, download=True)
+    print(f"Using {len(ds)} labeled samples for training.")
     return _make_loader(ds, batch_size, num_workers, distributed, shuffle=True)
 
 
@@ -212,6 +218,7 @@ def prepare_softclr_train_dataset(
     num_workers: int,
     img_size: int = 96,
     distributed: bool = False,
+    fold: int | None = 0,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
     """
     Prepares STL-10 loaders for SoftMatch+SimCLR.
@@ -224,6 +231,7 @@ def prepare_softclr_train_dataset(
         num_workers (int): Data loading workers.
         img_size (int): Target image size.
         distributed (bool): Use DistributedSampler.
+        fold (int | None): Which 1k fold to use (0-9). None uses all 5k labels.
 
     Returns:
         tuple[DataLoader, DataLoader]: Unlabeled and labeled DataLoaders.
@@ -234,7 +242,12 @@ def prepare_softclr_train_dataset(
         simclr_transform=get_simclr_transforms(img_size),
     )
     unlabeled_ds = datasets.STL10(root=DATASET_PATH, split="train+unlabeled", transform=softclr_transform, download=True)
-    labeled_ds = datasets.STL10(root=DATASET_PATH, split="train", transform=get_weak_transforms(img_size), download=True)
+    
+    if fold is not None:
+        labeled_ds = datasets.STL10(root=DATASET_PATH, split="train", folds=fold, transform=get_weak_transforms(img_size), download=True)
+    else:
+        labeled_ds = datasets.STL10(root=DATASET_PATH, split="train", transform=get_weak_transforms(img_size), download=True)
+    print(f"Using {len(labeled_ds)} labeled samples for training.")
 
     unlabeled_loader = _make_loader(unlabeled_ds, batch_size, num_workers, distributed, shuffle=True, drop_last=True)
     labeled_loader = _make_loader(labeled_ds, batch_size // 8, num_workers, distributed, shuffle=True, drop_last=True)
