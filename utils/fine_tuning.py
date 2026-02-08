@@ -13,19 +13,19 @@ from utils.data import prepare__ImageNetTrain, prepare__ImageNetTest, get_data_s
 from utils.distributed import is_main_process, get_world_size
 
 
-def _ft_key(stage: str, pretrain_epoch: int, name: str) -> str:
-    """Create a W&B metric key namespaced by pretrain epoch.
+def _ft_key(stage: str, pretrain_epoch: int, subset_ratio: float, name: str) -> str:
+    """Create a W&B metric key namespaced by pretrain epoch and subset ratio.
 
     Args:
         stage (str): Metric stage prefix (e.g. "ft_frozen").
         pretrain_epoch (int): Pretraining epoch number.
+        subset_ratio (float): Data subset ratio used for fine-tuning.
         name (str): Base metric name.
 
     Returns:
         str: Fully-qualified W&B metric key.
     """
-
-    return f"{stage}/pretrain_epoch={pretrain_epoch}/{name}"
+    return f"{stage}/pretrain_epoch={pretrain_epoch}/subset={subset_ratio}/{name}"
 
 
 class FineTuneModel(nn.Module):
@@ -48,10 +48,10 @@ def fine_tune(
     num_workers: int,
     config: Any,
     pretrain_epoch: int,
+    subset_ratio: float,
     save_path: str | None = None,
     distributed: bool = False,
     local_rank: int = 0,
-    subset_ratio: float | None = None,
 ) -> tuple[float, float, float, float, list[float], list[float]]:
     """
     Two-stage fine-tuning evaluation (does not modify original model).
@@ -63,10 +63,10 @@ def fine_tune(
         num_workers (int): Number of subprocesses for data loading.
         config (Any): Configuration object.
         pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
+        subset_ratio (float): Ratio of data used for fine-tuning.
         save_path (str | None): Path to save the best model.
         distributed (bool): Whether to use distributed training.
         local_rank (int): Local GPU rank for distributed training.
-        subset_ratio (float | None): Ratio of data used for fine-tuning. If None, uses config.ft_subset_ratio.
 
     Returns:
         tuple: (frozen_top1, frozen_top5, full_top1, full_top5, frozen_per_class, full_per_class).
@@ -94,8 +94,6 @@ def fine_tune(
 
     world_size = get_world_size()
     per_gpu_batch_size = config.ft_frozen_batch_size // world_size
-
-    subset_ratio = subset_ratio if subset_ratio is not None else config.ft_subset_ratio
 
     full_train_dataset = prepare__ImageNetTrain(
         preprocess=train_transform, batch_size=per_gpu_batch_size, num_workers=num_workers, distributed=distributed
@@ -129,6 +127,7 @@ def fine_tune(
         config=config,
         num_workers=num_workers,
         pretrain_epoch=pretrain_epoch,
+        subset_ratio=subset_ratio,
         distributed=distributed,
     )
 
@@ -155,6 +154,7 @@ def fine_tune(
         config=config,
         num_workers=num_workers,
         pretrain_epoch=pretrain_epoch,
+        subset_ratio=subset_ratio,
         distributed=distributed,
     )
 
@@ -191,6 +191,7 @@ def _train_frozen(
     config: Any,
     num_workers: int,
     pretrain_epoch: int,
+    subset_ratio: float,
     distributed: bool = False,
 ) -> tuple[float, float, list[float]]:
     """
@@ -204,6 +205,7 @@ def _train_frozen(
         config (Any): Configuration object.
         num_workers (int): Number of subprocesses for data loading.
         pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
+        subset_ratio (float): Data subset ratio used for fine-tuning.
         distributed (bool): Whether to use distributed training.
 
     Returns:
@@ -258,7 +260,7 @@ def _train_frozen(
             optimizer.step()
 
             if is_main_process():
-                wandb.log({_ft_key("ft_frozen", pretrain_epoch, "train_loss"): loss.item()})
+                wandb.log({_ft_key("ft_frozen", pretrain_epoch, subset_ratio, "train_loss"): loss.item()})
 
         scheduler.step()
 
@@ -266,9 +268,9 @@ def _train_frozen(
         if is_main_process():
             wandb.log(
                 {
-                    _ft_key("ft_frozen", pretrain_epoch, "val_top1"): top1,
-                    _ft_key("ft_frozen", pretrain_epoch, "val_top5"): top5,
-                    _ft_key("ft_frozen", pretrain_epoch, "epoch"): epoch + 1,
+                    _ft_key("ft_frozen", pretrain_epoch, subset_ratio, "val_top1"): top1,
+                    _ft_key("ft_frozen", pretrain_epoch, subset_ratio, "val_top5"): top5,
+                    _ft_key("ft_frozen", pretrain_epoch, subset_ratio, "epoch"): epoch + 1,
                 }
             )
         if top1 > best_acc:
@@ -286,6 +288,7 @@ def _train_full(
     config: Any,
     num_workers: int,
     pretrain_epoch: int,
+    subset_ratio: float,
     distributed: bool = False,
 ) -> tuple[float, float, list[float]]:
     """
@@ -299,6 +302,7 @@ def _train_full(
         config (Any): Configuration object.
         num_workers (int): Number of subprocesses for data loading.
         pretrain_epoch (int): Pretraining epoch at which evaluation is performed.
+        subset_ratio (float): Data subset ratio used for fine-tuning.
         distributed (bool): Whether to use distributed training.
 
     Returns:
@@ -350,7 +354,7 @@ def _train_full(
             optimizer.step()
 
             if is_main_process():
-                wandb.log({_ft_key("ft_full", pretrain_epoch, "train_loss"): loss.item()})
+                wandb.log({_ft_key("ft_full", pretrain_epoch, subset_ratio, "train_loss"): loss.item()})
 
         scheduler.step()
 
@@ -358,9 +362,9 @@ def _train_full(
         if is_main_process():
             wandb.log(
                 {
-                    _ft_key("ft_full", pretrain_epoch, "val_top1"): top1,
-                    _ft_key("ft_full", pretrain_epoch, "val_top5"): top5,
-                    _ft_key("ft_full", pretrain_epoch, "epoch"): epoch + 1,
+                    _ft_key("ft_full", pretrain_epoch, subset_ratio, "val_top1"): top1,
+                    _ft_key("ft_full", pretrain_epoch, subset_ratio, "val_top5"): top5,
+                    _ft_key("ft_full", pretrain_epoch, subset_ratio, "epoch"): epoch + 1,
                 }
             )
         if top1 > best_acc:

@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing import Literal
+from datetime import datetime
 
 from utils import conf_simclr as conf, prepare_simclr_train_dataset, fine_tune
 from utils.distributed import (
@@ -123,35 +124,45 @@ def train_simclr_model(
         # Evaluation and checkpointing
         if (epoch + 1) % conf.eval_every == 0 or epoch == conf.pretrain_epochs - 1:
             save_model = (epoch + 1) % conf.save_model_every == 0 or epoch == conf.pretrain_epochs - 1
-            save_path = f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}.pth" if save_model else None
 
-            # Synchronize before evaluation
+            if save_model and is_main_process():
+                simclr_save_path = f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}_{datetime.now().strftime('%H_%d_%m')}.pth"
+                model_to_save = simclr_model.module if distributed else simclr_model
+                torch.save(model_to_save.state_dict(), simclr_save_path)
+                wandb.termlog(f"Saved SimCLR model checkpoint to {simclr_save_path}")
+
             barrier()
-
             base_model = simclr_model.module if distributed else simclr_model
 
-            frozen_top1, frozen_top5, full_top1, full_top5, _, _ = fine_tune(
-                model=base_model.encoder,
-                num_features=num_features,
-                device=device,
-                num_workers=NUM_WORKERS,
-                config=conf,
-                pretrain_epoch=epoch + 1,
-                save_path=save_path if is_main_process() else None,
-                distributed=distributed,
-                local_rank=local_rank,
-            )
-
-            if is_main_process():
-                wandb.log(
-                    {
-                        "ft/frozen_top1": frozen_top1,
-                        "ft/frozen_top5": frozen_top5,
-                        "ft/full_top1": full_top1,
-                        "ft/full_top5": full_top5,
-                        "epoch": epoch + 1,
-                    }
+            for subset_ratio in conf.ft_subset_ratios:
+                ft_save_path = (
+                    f"{conf.model_saved_path}/simclr_{model_name}_epoch_{epoch + 1}_subset_{subset_ratio}_{datetime.now().strftime('%H_%d_%m')}_ft.pth"
+                    if save_model else None
                 )
+                frozen_top1, frozen_top5, full_top1, full_top5, _, _ = fine_tune(
+                    model=base_model.encoder,
+                    num_features=num_features,
+                    device=device,
+                    num_workers=NUM_WORKERS,
+                    config=conf,
+                    pretrain_epoch=epoch + 1,
+                    save_path=ft_save_path if is_main_process() else None,
+                    distributed=distributed,
+                    local_rank=local_rank,
+                    subset_ratio=subset_ratio,
+                )
+
+                if is_main_process():
+                    ratio_tag = f"subset={subset_ratio}"
+                    wandb.log(
+                        {
+                            f"ft/{ratio_tag}/frozen_top1": frozen_top1,
+                            f"ft/{ratio_tag}/frozen_top5": frozen_top5,
+                            f"ft/{ratio_tag}/full_top1": full_top1,
+                            f"ft/{ratio_tag}/full_top5": full_top5,
+                            "epoch": epoch + 1,
+                        }
+                    )
 
 
 def main() -> None:

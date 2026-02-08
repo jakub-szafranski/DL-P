@@ -19,7 +19,7 @@ class SimCLRConfig(BaseModel):
     pretrain_temperature: float = Field(..., description="Temperature parameter for NT-Xent loss")
 
     # Fine-tuning options
-    ft_subset_ratio: float = Field(..., description="Ratio of data used for fine-tuning")
+    ft_subset_ratios: list[float] = Field(..., description="List of data ratios used for fine-tuning evaluation")
     ft_frozen_batch_size: int = Field(..., description="Batch size for frozen encoder stage")
     ft_frozen_learning_rate: float = Field(..., description="Learning rate for frozen encoder stage")
     ft_frozen_epochs: int = Field(..., description="Number of epochs for frozen encoder stage")
