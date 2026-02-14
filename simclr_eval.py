@@ -14,7 +14,7 @@ from utils.distributed import (
     is_main_process,
     barrier,
 )
-from sim_clr import get_encoder
+from sim_clr import get_encoder, SimCLR
 
 
 NUM_WORKERS = 20
@@ -67,8 +67,13 @@ def evaluate_simclr_models(
         model_name = conf.models[0]
 
         encoder, num_features = get_encoder(model_name)
-        ft_model = FineTuneModel(encoder, num_features)
-        ft_model.load_state_dict(torch.load(model_path, map_location=device))
+        if model_path.endswith("ft.pth"):
+            ft_model = FineTuneModel(encoder, num_features)
+            ft_model.load_state_dict(torch.load(model_path, map_location=device))
+        else:
+            ft_model = SimCLR(encoder, num_features)
+            ft_model.load_state_dict(torch.load(model_path, map_location=device))
+
         encoder = ft_model.encoder
         encoder = encoder.to(device)
 
