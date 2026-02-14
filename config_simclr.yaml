@@ -24,7 +24,7 @@ save_model_every: 100 # save model checkpoint every N epochs during pre-training
 
 
 # ---------- Fine-tuning options ----------
-ft_subset_ratios: [0.01, 0.1] # list of data ratios used for fine-tuning evaluation
+ft_subset_ratios: [0.01] # list of data ratios used for fine-tuning evaluation
 
 # Stage 1: Frozen encoder - train only classifier head
 ft_frozen_batch_size: 512
