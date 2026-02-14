@@ -4,7 +4,7 @@
 model_saved_path: "model_checkpoints/" # path to save model checkpoints
 
 # Models to train
-models: ["resnet50"] # list of encoder backbones to use - any of ["resnet50", "vit_b_16", "efficientnet_b5"]
+models: ["resnet18"] # list of encoder backbones to use - any of ["resnet50", "vit_b_16", "efficientnet_b5"]
 
 # Training
 seed: 42 
