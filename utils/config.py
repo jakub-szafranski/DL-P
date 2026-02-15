@@ -65,6 +65,7 @@ class SoftCLRConfig(BaseModel):
     # SoftMatch options
     softmatch_sup_weight: float = Field(..., description="Weight for supervised loss")
     softmatch_unsup_weight: float = Field(..., description="Weight for unsupervised consistency loss")
+    simclr_weight: float = Field(..., description="Weight for SimCLR loss")
     softmatch_dist_align: bool = Field(..., description="Apply distribution alignment")
     softmatch_hard_label: bool = Field(..., description="Use hard pseudo labels")
     softmatch_ema_p: float = Field(..., description="EMA decay for probability tracking")

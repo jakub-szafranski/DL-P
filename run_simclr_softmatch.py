@@ -188,9 +188,9 @@ def train_simclr_softmatch_model(
 
                 softmatch_loss = conf.softmatch_sup_weight * loss_softmatch_supervised + conf.softmatch_unsup_weight * loss_softmatch_unsupervised
                 alpha = get_decay_weight(epoch, conf)
-                loss = alpha* loss_simclr + (1 - alpha) * softmatch_loss * conf.softmatch_loss_weight
+                loss = alpha * conf.simclr_weight * loss_simclr + (1 - alpha) * softmatch_loss * conf.softmatch_loss_weight
             else:
-                loss = loss_simclr + conf.softmatch_sup_weight * loss_softmatch_supervised + conf.softmatch_unsup_weight * loss_softmatch_unsupervised
+                loss = conf.simclr_weight * loss_simclr + conf.softmatch_sup_weight * loss_softmatch_supervised + conf.softmatch_unsup_weight * loss_softmatch_unsupervised
 
             loss.backward()
             optimizer.step()
