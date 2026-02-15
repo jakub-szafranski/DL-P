@@ -66,15 +66,12 @@ class SoftCLRConfig(BaseModel):
     softmatch_subset_ratio: float = Field(..., description="Ratio of labeled data used for supervised loss")
     softmatch_sup_weight: float = Field(..., description="Weight for supervised loss")
     softmatch_unsup_weight: float = Field(..., description="Weight for unsupervised consistency loss")
+    simclr_loss_weight: float = Field(..., description="Weight for SimCLR loss in total loss")
     softmatch_dist_align: bool = Field(..., description="Apply distribution alignment")
     softmatch_hard_label: bool = Field(..., description="Use hard pseudo labels")
     softmatch_ema_p: float = Field(..., description="EMA decay for probability tracking")
     softmatch_model_ema: float = Field(..., description="EMA decay for model weights")
     soft_weights_epoch: int = Field(..., description="Epoch to start applying soft weights to unsupervised loss")
-    softmatch_loss_weight: float = Field(..., description="Multiplier for softmatch loss in total loss")
-    use_decaying_loss_weight: bool = Field(..., description="Whether to use decaying loss weight for unsupervised loss")
-    decaying_weight_min: float = Field(..., description="Minimum weight for decaying loss weight")
-    decaying_weight_max: float = Field(..., description="Maximum weight for decaying loss weight")
 
     @model_validator(mode="after")
     def check_save_interval(self):

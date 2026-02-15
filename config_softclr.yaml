@@ -27,15 +27,12 @@ save_model_every: 100 # save model checkpoint every N epochs during pre-training
 # ---------- SoftMatch options ----------
 softmatch_subset_ratio: 0.1 # ratio of labeled data used for supervised loss (0.1 means 10% of the training data)
 softmatch_sup_weight: 1.0 # weight for supervised loss
-softmatch_unsup_weight: 1.0 # weight for unsupervised consistency loss
+softmatch_unsup_weight: 10.0 # weight for unsupervised consistency loss
+simclr_loss_weight: 2.0 # weight for SimCLR loss in total loss
+
 softmatch_dist_align: true # whether to apply distribution alignment
 softmatch_hard_label: true # use hard pseudo-labels (SoftMatch paper default = true)
 softmatch_ema_p: 0.999 # EMA decay for probability tracking
 softmatch_model_ema: 0.999 # EMA decay for model weights
 
 soft_weights_epoch: 50 # epoch to start applying soft weights to unsupervised loss
-softmatch_loss_weight: 2.5 # multiplier for softmatch loss in loss = simclr_loss + softmatch_loss_weight * softmatch_loss
-
-use_decaying_loss_weight: true # whether to use decaying loss weight for unsupervised loss
-decaying_weight_min: 0.1 # minimum weight for decaying loss weight
-decaying_weight_max: 0.7 # maximum weight for decaying loss weight
