@@ -9,6 +9,7 @@ models: ["resnet18"] # list of encoder backbones to use - any of ["resnet50", "v
 # Training
 seed: 42 
 image_size: 96
+fold: 0 # Which 1k fold to use (0-9). Set to null to use all 5k labels
 
 ## Pre-training options
 # NOTE: batch_size is TOTAL effective batch size (will be divided by num_gpus)

@@ -52,6 +52,7 @@ def fine_tune(
     save_path: str | None = None,
     distributed: bool = False,
     local_rank: int = 0,
+    fold: int | None = 0,
 ) -> tuple[float, float, float, float, list[float], list[float]]:
     """
     Two-stage fine-tuning evaluation (does not modify original model).
@@ -67,6 +68,7 @@ def fine_tune(
         save_path (str | None): Path to save the best model.
         distributed (bool): Whether to use distributed training.
         local_rank (int): Local GPU rank for distributed training.
+        fold (int | None): Which 1k fold to use (0-9). None uses all 5k labels.
 
     Returns:
         tuple: (frozen_top1, frozen_top5, full_top1, full_top5, frozen_per_class, full_per_class).
@@ -85,7 +87,7 @@ def fine_tune(
     per_gpu_batch_size = config.ft_frozen_batch_size // world_size
 
     train_loader = prepare_stl10_train(
-        preprocess=train_transform, batch_size=per_gpu_batch_size, num_workers=num_workers, distributed=distributed
+        preprocess=train_transform, batch_size=per_gpu_batch_size, num_workers=num_workers, distributed=distributed, fold=fold
     )
     train_dataset = train_loader.dataset
     test_loader = prepare_stl10_test(

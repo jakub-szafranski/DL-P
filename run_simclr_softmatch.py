@@ -112,6 +112,7 @@ def train_simclr_softmatch_model(
         num_workers=NUM_WORKERS, 
         img_size=conf.image_size, 
         distributed=distributed,
+        fold=conf.fold,
     )
 
     pretrain_step = 0

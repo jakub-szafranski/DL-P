@@ -153,6 +153,7 @@ def train_simclr_model(
                     distributed=distributed,
                     local_rank=local_rank,
                     subset_ratio=subset_ratio,
+                    fold=conf.fold,
                 )
 
                 if is_main_process():

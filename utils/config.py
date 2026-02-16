@@ -11,6 +11,7 @@ class SimCLRConfig(BaseModel):
     models: list[str] = Field(..., description="List of encoder backbones to use")
     seed: int = Field(..., description="Random seed for reproducibility")
     image_size: int = Field(..., description="Input image size")
+    fold: int | None = Field(..., description="Which 1k fold to use (0-9). None uses all 5k labels")
 
     # Pre-training options
     pretrain_batch_size: int = Field(..., description="Batch size for pre-training")
@@ -49,6 +50,7 @@ class SoftCLRConfig(BaseModel):
     models: list[str] = Field(..., description="List of encoder backbones to use")
     seed: int = Field(..., description="Random seed for reproducibility")
     image_size: int = Field(..., description="Input image size")
+    fold: int | None = Field(..., description="Which 1k fold to use (0-9). None uses all 5k labels")
 
     # Pre-training options
     pretrain_batch_size: int = Field(..., description="Batch size for pre-training")
