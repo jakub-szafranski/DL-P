@@ -1,0 +1,36 @@
+# ============== Configuration file for SoftMatch-only training ==============
+
+# ----------- Shared settings -------------
+model_saved_path: "model_checkpoints/softmatch/" # path to save model checkpoints
+
+# Models to train
+models: ["resnet18"]
+
+# Training
+seed: 42
+image_size: 96
+fold: 0 # Which 1k fold to use (0-9). Set to null to use all 5k labels
+
+## Pre-training options
+# Use explicit unlabeled and labeled batch sizes for SoftMatch
+unlabeled_batch_size: 448
+labeled_batch_size: 64
+pretrain_learning_rate: 0.03
+pretrain_epochs: 200
+pretrain_weight_decay: 5e-4
+pretrain_momentum: 0.9
+
+## Logging and saving options
+eval_every: 50
+save_model_every: 100
+
+
+# ---------- SoftMatch options ----------
+
+softmatch_sup_weight: 1.0
+softmatch_unsup_weight: 1.0
+
+softmatch_dist_align: true
+softmatch_hard_label: true
+softmatch_ema_p: 0.999
+softmatch_model_ema: 0.999

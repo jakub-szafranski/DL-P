@@ -219,6 +219,7 @@ def prepare_softclr_train_dataset(
     img_size: int = 96,
     distributed: bool = False,
     fold: int | None = 0,
+    labeled_batch_size: int | None = None,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
     """
     Prepares STL-10 loaders for SoftMatch+SimCLR.
@@ -250,6 +251,8 @@ def prepare_softclr_train_dataset(
     print(f"Using {len(labeled_ds)} labeled samples for training.")
 
     unlabeled_loader = _make_loader(unlabeled_ds, batch_size, num_workers, distributed, shuffle=True, drop_last=True)
-    labeled_loader = _make_loader(labeled_ds, batch_size // 8, num_workers, distributed, shuffle=True, drop_last=True)
+    if labeled_batch_size is None:
+        labeled_batch_size = batch_size // 8
+    labeled_loader = _make_loader(labeled_ds, labeled_batch_size, num_workers, distributed, shuffle=True, drop_last=True)
 
     return unlabeled_loader, labeled_loader

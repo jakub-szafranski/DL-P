@@ -98,6 +98,48 @@ with open(softmatch_path, "r") as f:
 conf_softclr = SoftCLRConfig(**softmatch_config_dict)
 
 
+# ------------------ SoftMatch-only config ------------------
+class SoftMatchConfig(BaseModel):
+    """Configuration for standalone SoftMatch-only training."""
+
+    model_saved_path: str = Field(..., description="Path to save model checkpoints")
+    models: list[str] = Field(..., description="List of encoder backbones to use")
+    seed: int = Field(..., description="Random seed for reproducibility")
+    image_size: int = Field(..., description="Input image size")
+    fold: int | None = Field(..., description="Which 1k fold to use (0-9). None uses all 5k labels")
+
+    # Batch sizes (total across all GPUs)
+    unlabeled_batch_size: int = Field(..., description="Total unlabeled batch size")
+    labeled_batch_size: int = Field(..., description="Total labeled batch size")
+
+    # Optimizer / training
+    pretrain_learning_rate: float = Field(..., description="Learning rate for SoftMatch training")
+    pretrain_epochs: int = Field(..., description="Number of training epochs")
+    pretrain_weight_decay: float = Field(..., description="Weight decay for optimizer")
+    pretrain_momentum: float = Field(..., description="Momentum for optimizer")
+
+    # Logging and saving
+    eval_every: int = Field(..., description="Evaluate model performance every N epochs")
+    save_model_every: int = Field(..., description="Save model checkpoint every N epochs")
+
+    # SoftMatch-specific
+    softmatch_sup_weight: float = Field(..., description="Weight for supervised loss")
+    softmatch_unsup_weight: float = Field(..., description="Weight for unsupervised loss")
+    softmatch_dist_align: bool = Field(True, description="Whether to apply distribution alignment")
+    softmatch_hard_label: bool = Field(True, description="Use hard pseudo labels")
+    softmatch_ema_p: float = Field(..., description="EMA decay for probability tracking")
+    softmatch_model_ema: float = Field(..., description="EMA decay for model weights")
+
+
+# Load standalone SoftMatch config if present
+softmatch_only_path = Path(__file__).parent.parent / "config_softmatch.yaml"
+conf_softmatch = None
+if softmatch_only_path.exists():
+    with open(softmatch_only_path, "r") as f:
+        softmatch_only_dict = yaml.safe_load(f)
+    conf_softmatch = SoftMatchConfig(**softmatch_only_dict)
+
+
 def parse_simclr_cli() -> SimCLRConfig:
     """Parse SimCLR config from YAML defaults with CLI overrides."""
     return tyro.cli(SimCLRConfig, default=conf_simclr)
@@ -106,3 +148,13 @@ def parse_simclr_cli() -> SimCLRConfig:
 def parse_softclr_cli() -> SoftCLRConfig:
     """Parse SoftCLR config from YAML defaults with CLI overrides."""
     return tyro.cli(SoftCLRConfig, default=conf_softclr)
+
+
+def parse_softmatch_cli() -> SoftMatchConfig:
+    """Parse standalone SoftMatch config from YAML defaults with CLI overrides.
+
+    Raises an error if `config_softmatch.yaml` is not present.
+    """
+    if conf_softmatch is None:
+        raise FileNotFoundError("config_softmatch.yaml not found in repository root")
+    return tyro.cli(SoftMatchConfig, default=conf_softmatch)
