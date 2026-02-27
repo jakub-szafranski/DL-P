@@ -1,8 +1,3 @@
-# SimCLR + SoftMatch
-
-- **SimCLR**: [A Simple Framework for Contrastive Learning of Visual Representations](https://arxiv.org/pdf/2002.05709)
-- **SoftMatch**: [SoftMatch: Addressing the Quantity-Quality Trade-off in Semi-supervised Learning](https://arxiv.org/abs/2301.10921)
-
 ## Setup
 
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
@@ -52,26 +47,4 @@ Add the package to `pyproject.toml` under `[project.dependencies]`, then run `uv
 
 ## Configuration
 
-Edit `config.yaml` to adjust training parameters.
-
-## Project Structure
-
-```
-├── config.yaml              # Training configuration
-├── pyproject.toml           # Project metadata and dependencies
-├── run_simclr.py            # SimCLR training script
-├── run_simclr_softmatch.py  # SimCLR + SoftMatch training script
-│
-├── sim_clr/                 # SimCLR implementation
-│   ├── encoder.py           # Encoder architectures
-│   ├── lars.py              # LARS optimizer
-│   └── sim_clr.py           # SimCLR model and NT-Xent loss
-├── soft_match/              # SoftMatch implementation
-│   ├── soft_clr.py          # SoftCLR model and Soft NT-Xent loss
-│   └── softmatch_training.py # SoftMatchTrainer and ModelEMA
-└── utils/                   # Utilities
-    ├── config.py            # Config loader
-    ├── data.py              # Dataset utilities
-    ├── distributed.py       # torch.distributed utilities
-    └── fine_tuning.py       # Fine-tuning evaluation
-```
+Edit config files to adjust training parameters.
